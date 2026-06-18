@@ -105,43 +105,29 @@ def chanel_keyboard():
     return keyboard
 
 
-def keyboard_start_bonus():
+def keyboard_start_bonus(*, show_owner_panel: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
-                text="🛒 Купить подписку",
+                text="🔥 Попробовать бесплатно",
+                callback_data="trial_vpn",
+                style=STYLE_SUCCESS,
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text="🛒 Купить",
                 callback_data="buy_vpn",
                 style=STYLE_SUCCESS,
             ),
         ],
-        [
-            InlineKeyboardButton(
-                text="🎁 Бесплатный VPN за приглашения",
-                callback_data="ref",
-                style=STYLE_PRIMARY,
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                text="💸 Зарабатывай с нами",
-                callback_data="partner_earn",
-                style=STYLE_SUCCESS,
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                text="📋 Отзывы",
-                url=REVIEWS_URL,
-                style=STYLE_PRIMARY,
-            ),
-        ],
     ]
-    if SUPPORT_URL:
+    if show_owner_panel:
         rows.append(
             [
                 InlineKeyboardButton(
-                    text="👷 Поддержка",
-                    url=SUPPORT_URL,
+                    text="⚙️ Панель партнёра",
+                    callback_data="owner_panel",
                     style=STYLE_PRIMARY,
                 ),
             ]
@@ -629,12 +615,12 @@ def channel_keyboard(channel_url: str) -> InlineKeyboardMarkup:
 
 
 def keyboard_main(*, show_owner_panel: bool = False, in_panel: bool = False) -> InlineKeyboardMarkup:
+    if not in_panel:
+        return keyboard_start_bonus(show_owner_panel=show_owner_panel)
     rows = [
         [InlineKeyboardButton(text="🛒 Купить подписку", callback_data="buy_vpn", style=STYLE_SUCCESS)],
-        [InlineKeyboardButton(text="🎁 Триал", callback_data="trial_vpn", style=STYLE_PRIMARY)],
+        [InlineKeyboardButton(text="🔗 Подключить ВПН", callback_data="connect_vpn", style=STYLE_PRIMARY)],
     ]
-    if in_panel:
-        rows.append([InlineKeyboardButton(text="🔗 Подключить ВПН", callback_data="connect_vpn", style=STYLE_PRIMARY)])
     rows.extend([
         [InlineKeyboardButton(text="💸 Зарабатывай с нами", callback_data="ref_program", style=STYLE_SUCCESS)],
         [InlineKeyboardButton(text="🎁 Подарить подписку", callback_data="buy_gift", style=STYLE_SUCCESS)],
