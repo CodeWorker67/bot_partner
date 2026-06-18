@@ -4,6 +4,7 @@ from typing import List, Optional
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from bot_display import bot_display_name
 from config import BOT_URL, SUPPORT_URL
 from tariff_resolve import dct_desc
 
@@ -501,7 +502,7 @@ def ref_keyboard(user_id):
             [
                 InlineKeyboardButton(
                     text="Пригласить друзей🫶",
-                    url=f"https://t.me/share/url?url={BOT_URL}?start=ref{user_id}&text={urllib.parse.quote('Вот ссылка на быстрый ВПН для своих!')}",
+                    url=f"https://t.me/share/url?url={BOT_URL}?start=ref{user_id}&text={urllib.parse.quote(f'Вот ссылка на {bot_display_name()}!')}",
                     style=STYLE_SUCCESS,
                 )
             ],

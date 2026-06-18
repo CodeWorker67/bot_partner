@@ -1,4 +1,7 @@
 """Панель партнёра (владелец бота)."""
+import functools
+import inspect
+
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -25,13 +28,16 @@ class OwnerFSM(StatesGroup):
 
 
 def _owner_only(handler):
+    @functools.wraps(handler)
     async def wrapper(event, *args, **kwargs):
         uid = event.from_user.id
         if uid != OWNER_TG_ID:
             if isinstance(event, CallbackQuery):
                 await event.answer("Нет доступа", show_alert=True)
             return
-        return await handler(event, *args, **kwargs)
+        sig = inspect.signature(handler)
+        filtered = {k: v for k, v in kwargs.items() if k in sig.parameters}
+        return await handler(event, *args, **filtered)
 
     return wrapper
 

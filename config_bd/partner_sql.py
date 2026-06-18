@@ -7,10 +7,11 @@ from datetime import datetime, date, timezone, timedelta
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from sqlalchemy import and_, func, or_, select, update, delete
+from sqlalchemy import and_, func, or_, select, update, delete, literal, case, cast, Date, union_all
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from config import BOT_ID, DEFAULT_PRICES, MIN_PRICES, TRIAL_DAYS_MAX, TRIAL_DAYS_MIN
+from lexicon import PAYMENT_MINOR_THRESHOLD_RUB
 from config_bd.models import (
     AsyncSessionLocal,
     Gifts,
@@ -412,7 +413,7 @@ class PartnerSQL:
         is_gift: bool,
         invoice_id: str,
         payload: str,
-        status: str = "pending",
+        status: str = "active",
     ) -> None:
         await self.insert_cryptobot_payment(
             user_id=user_id,
@@ -502,3 +503,225 @@ class PartnerSQL:
                 .limit(1)
             )
             return (await session.execute(stmt)).scalar_one_or_none()
+
+    async def mark_notification_as_sent(self, user_id: int) -> None:
+        async with self.session_factory() as session:
+            utc_today = datetime.now(timezone.utc).date()
+            await session.execute(
+                update(Users)
+                .where(_user_filter(user_id))
+                .values(last_notification_date=utc_today)
+            )
+            await session.commit()
+
+    async def update_field_str_1(self, user_id: int, value: Optional[str]) -> None:
+        async with self.session_factory() as session:
+            await session.execute(
+                update(Users).where(_user_filter(user_id)).values(field_str_1=value)
+            )
+            await session.commit()
+
+    async def select_all_users(self) -> List[int]:
+        async with self.session_factory() as session:
+            stmt = select(Users.user_id).where(Users.bot_id == BOT_ID, Users.is_delete == False)
+            return [r[0] for r in (await session.execute(stmt)).all()]
+
+    async def select_rows_for_subscription_expiry_push(
+        self, now_utc_naive: datetime, window: timedelta
+    ) -> List[Tuple[int, datetime, bool, Optional[str], str]]:
+        w = window
+        now = now_utc_naive
+
+        def _window_or(col):
+            active_7 = and_(
+                col > now,
+                col > now + timedelta(days=7) - w,
+                col <= now + timedelta(days=7),
+            )
+            active_3 = and_(
+                col > now,
+                col > now + timedelta(days=3) - w,
+                col <= now + timedelta(days=3),
+            )
+            active_1 = and_(
+                col > now,
+                col > now + timedelta(days=1) - w,
+                col <= now + timedelta(days=1),
+            )
+            active_h = and_(
+                col > now,
+                col > now + timedelta(hours=1) - w,
+                col <= now + timedelta(hours=1),
+            )
+            active_cond = or_(active_7, active_3, active_1, active_h)
+
+            post_pn = []
+            for n in range(1, 201):
+                d = timedelta(days=3 * n)
+                post_pn.append(
+                    and_(
+                        col <= now,
+                        col > now - d - w,
+                        col <= now - d,
+                    )
+                )
+            expired_cond = or_(*post_pn)
+            return or_(active_cond, expired_cond)
+
+        user_bot = and_(Users.bot_id == BOT_ID, Users.is_delete == False)
+        s_main = (
+            select(
+                Users.user_id,
+                literal("main").label("tier"),
+                Users.subscription_end_date.label("end_dt"),
+            )
+            .where(user_bot, Users.subscription_end_date.isnot(None))
+        )
+        s_3 = (
+            select(
+                Users.user_id,
+                literal("3").label("tier"),
+                Users.subscription_3_end_date.label("end_dt"),
+            )
+            .where(user_bot, Users.subscription_3_end_date.isnot(None))
+        )
+        s_10 = (
+            select(
+                Users.user_id,
+                literal("10").label("tier"),
+                Users.subscription_10_end_date.label("end_dt"),
+            )
+            .where(user_bot, Users.subscription_10_end_date.isnot(None))
+        )
+        uend = union_all(s_main, s_3, s_10).subquery("uend")
+        tier_prio = case(
+            (uend.c.tier == "main", 0),
+            (uend.c.tier == "3", 1),
+            (uend.c.tier == "10", 2),
+            else_=9,
+        )
+        rn = func.row_number().over(
+            partition_by=uend.c.user_id,
+            order_by=(uend.c.end_dt.desc(), tier_prio.asc()),
+        ).label("rn")
+        ranked = select(uend.c.user_id, uend.c.tier, uend.c.end_dt, rn).subquery("ranked")
+        best = (
+            select(ranked.c.user_id, ranked.c.tier, ranked.c.end_dt)
+            .where(ranked.c.rn == 1)
+            .subquery("best")
+        )
+
+        cond = _window_or(best.c.end_dt)
+        stmt = (
+            select(
+                Users.user_id,
+                best.c.end_dt,
+                Users.reserve_field,
+                Users.field_str_1,
+                best.c.tier,
+            )
+            .select_from(Users)
+            .join(best, Users.user_id == best.c.user_id)
+            .where(user_bot, cond)
+            .order_by(Users.user_id)
+        )
+
+        rows_out: List[Tuple[int, datetime, bool, Optional[str], str]] = []
+        async with self.session_factory() as session:
+            result = await session.execute(stmt)
+            for r in result.all():
+                rows_out.append((r[0], r[1], bool(r[2]), r[3], r[4]))
+        return rows_out
+
+    async def get_active_cryptobot_payments(self) -> List[PaymentsCryptobot]:
+        async with self.session_factory() as session:
+            stmt = select(PaymentsCryptobot).where(
+                PaymentsCryptobot.bot_id == BOT_ID,
+                or_(
+                    PaymentsCryptobot.status == "active",
+                    PaymentsCryptobot.status == "pending",
+                ),
+            )
+            return list((await session.execute(stmt)).scalars().all())
+
+    async def update_cryptobot_payment_status(self, payment_id: int, status: str) -> None:
+        await self.update_cryptobot_status(payment_id, status)
+
+    async def count_open_payment_slots_for_user(self, user_id: int) -> int:
+        uid = int(user_id)
+        async with self.session_factory() as session:
+            total = 0
+            pairs = (
+                (
+                    PaymentsFkSBP,
+                    and_(
+                        PaymentsFkSBP.bot_id == BOT_ID,
+                        PaymentsFkSBP.user_id == uid,
+                        PaymentsFkSBP.status == "pending",
+                    ),
+                ),
+                (
+                    PaymentsCryptobot,
+                    and_(
+                        PaymentsCryptobot.bot_id == BOT_ID,
+                        PaymentsCryptobot.user_id == uid,
+                        or_(
+                            PaymentsCryptobot.status == "active",
+                            PaymentsCryptobot.status == "pending",
+                        ),
+                    ),
+                ),
+            )
+            for model, cond in pairs:
+                q = select(func.count()).select_from(model).where(cond)
+                total += int((await session.execute(q)).scalar_one())
+            return total
+
+    async def user_ids_with_full_tariff_payment(self, user_ids: List[int]) -> Set[int]:
+        if not user_ids:
+            return set()
+        minor_floor = PAYMENT_MINOR_THRESHOLD_RUB
+        uniq = list({int(u) for u in user_ids})
+        out: Set[int] = set()
+        chunk_size = 400
+        chunks = [uniq[i : i + chunk_size] for i in range(0, len(uniq), chunk_size)]
+        async with self.session_factory() as session:
+            for chunk in chunks:
+                stmt_fk = select(PaymentsFkSBP.user_id).distinct().where(
+                    PaymentsFkSBP.bot_id == BOT_ID,
+                    PaymentsFkSBP.user_id.in_(chunk),
+                    PaymentsFkSBP.status == "confirmed",
+                    PaymentsFkSBP.is_gift == False,
+                    PaymentsFkSBP.amount > minor_floor,
+                    PaymentsFkSBP.amount != 1,
+                )
+                for (uid,) in (await session.execute(stmt_fk)).all():
+                    out.add(int(uid))
+
+                stmt_st = select(PaymentsStars.user_id).distinct().where(
+                    PaymentsStars.bot_id == BOT_ID,
+                    PaymentsStars.user_id.in_(chunk),
+                    PaymentsStars.status == "confirmed",
+                    PaymentsStars.is_gift == False,
+                    PaymentsStars.amount > minor_floor,
+                )
+                for (uid,) in (await session.execute(stmt_st)).all():
+                    out.add(int(uid))
+
+                stmt_cr = select(PaymentsCryptobot.user_id, PaymentsCryptobot.amount).where(
+                    PaymentsCryptobot.bot_id == BOT_ID,
+                    PaymentsCryptobot.user_id.in_(chunk),
+                    PaymentsCryptobot.status == "paid",
+                    PaymentsCryptobot.is_gift == False,
+                    PaymentsCryptobot.amount > 0.02,
+                )
+                for uid, amt in (await session.execute(stmt_cr)).all():
+                    if float(amt) > minor_floor:
+                        out.add(int(uid))
+        return out
+
+    async def add_online_stats(
+        self, users_panel: int, users_active: int, users_pay: int, users_trial: int
+    ) -> None:
+        await self.save_online_stats(users_panel, users_active, users_pay, users_trial)
+

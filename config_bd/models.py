@@ -71,6 +71,7 @@ class Users(Base):
     subscribtion_3 = Column(String(255), nullable=True)
     subscribtion_10 = Column(String(255), nullable=True)
     field_bool_3 = Column(Boolean, default=False)
+    field_str_1 = Column(String(4096), nullable=True)
 
 
 class Gifts(Base):
@@ -141,7 +142,18 @@ class Online(Base):
 async def create_tables():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await _migrate_schema()
     await _ensure_bot_settings()
+
+
+async def _migrate_schema():
+    from sqlalchemy import text
+
+    async with engine.begin() as conn:
+        result = await conn.execute(text("PRAGMA table_info(users)"))
+        cols = {row[1] for row in result.fetchall()}
+        if "field_str_1" not in cols:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN field_str_1 VARCHAR(4096)"))
 
 
 async def _ensure_bot_settings():
