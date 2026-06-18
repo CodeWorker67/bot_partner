@@ -7,7 +7,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from bot import bot
 from config import BOT_ID, OWNER_TG_ID, TG_TOKEN
 from config_bd.models import create_tables, engine
-from handlers import handlers_user, handlers_admin, handlers_broadcast, handlers_devices, handlers_owner
+from handlers import handlers_user, handlers_devices, handlers_owner
 from logging_config import logger
 from payments import pay_cryptobot, pay_freekassa, pay_stars
 from sheduler.backup_db import send_db_backup_cron
@@ -34,8 +34,6 @@ async def main() -> None:
 
     dp = Dispatcher()
     dp.include_router(handlers_owner.router)
-    dp.include_router(handlers_broadcast.router)
-    dp.include_router(handlers_admin.router)
     dp.include_router(handlers_user.router)
     dp.include_router(handlers_devices.router)
     dp.include_router(pay_freekassa.router)
