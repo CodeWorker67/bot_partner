@@ -8,8 +8,6 @@ from bot import bot, sql, x3
 from channel_gate import require_channel_sub
 from config import BOT_ID, BOT_URL, OWNER_TG_ID, REFERRAL_PROCENT, SUPPORT_URL
 from keyboard import (
-    BTN_BACK,
-    create_kb,
     keyboard_buy_tiers,
     keyboard_duration,
     keyboard_gift_duration,
@@ -18,6 +16,7 @@ from keyboard import (
     keyboard_payment_methods,
     keyboard_ref_dashboard,
     keyboard_sub_after_buy,
+    keyboard_subscription,
 )
 from lexicon import lexicon, payment_tariff_summary_pro
 from logging_config import logger
@@ -177,8 +176,10 @@ async def connect_vpn_cb(callback: CallbackQuery):
     if not links:
         await callback.answer(lexicon["no_sub"], show_alert=True)
         return
-    text = lexicon["to_sub"] + "\n\n" + "\n".join(f"• {label}: {url}" for label, url in links)
-    await callback.message.edit_text(text, reply_markup=create_kb(1, back_to_main=BTN_BACK))
+    await callback.message.edit_text(
+        lexicon["to_sub"],
+        reply_markup=keyboard_subscription(links),
+    )
     await callback.answer()
 
 
