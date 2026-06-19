@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
 from bot import sql, x3, bot
-from config import ADMIN_IDS, CHECKER_ID
+from config import ADMIN_IDS, BOT_ID, CHECKER_ID
 from keyboard import create_kb, STYLE_PRIMARY, STYLE_SUCCESS, STYLE_DANGER, keyboard_sub_after_buy
 from lexicon import lexicon
 from logging_config import logger
@@ -13,7 +13,15 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.filters import Command
 
 from sheduler.check_connect import check_connect
-from tariff_resolve import panel_username, panel_username_for_site_user
+from tariff_resolve import (
+    hwid_limit_from_panel_username,
+    panel_username,
+    panel_username_for_site_user,
+    panel_usernames_for_lookup,
+    parse_sub_target,
+    subscription_db_slot_from_panel_username,
+    telegram_id_from_panel_username,
+)
 from telegram_ids import is_telegram_chat_id
 
 router = Router()
@@ -124,35 +132,6 @@ def _panel_username_for_user(user_id: int, device_slots: int) -> str:
     if user_id > 0:
         return panel_username(user_id, white=False, device_slots=device_slots)
     return panel_username_for_site_user(user_id, white=False, device_slots=device_slots)
-
-
-def _hwid_limit_for_panel_username(username: str) -> int:
-    if "white" in username:
-        return 1
-    if username.endswith("_3"):
-        return 3
-    if username.endswith("_10"):
-        return 10
-    return PRO_HWID_DEVICE_LIMIT
-
-
-def _parse_sub_target(raw: str) -> tuple[int, str, str]:
-    """
-    Разбор цели /sub: telegram_id, username в панели, метка тарифа.
-    Примеры: 123456789 → 5 устр.; 123456789_3; 123456789_10; 123456789_white.
-    """
-    raw = raw.strip()
-    if raw.endswith("_white"):
-        tg_id = int(raw[:-6])
-        return tg_id, raw, "white"
-    if raw.endswith("_10"):
-        tg_id = int(raw[:-3])
-        return tg_id, raw, "10"
-    if raw.endswith("_3"):
-        tg_id = int(raw[:-2])
-        return tg_id, raw, "3"
-    tg_id = int(raw)
-    return tg_id, str(tg_id), "5"
 
 
 _SUB_TIER_LABELS = {
@@ -447,23 +426,25 @@ async def set_subscription_date(message: Message):
         if len(args) < 3:
             await message.answer(
                 "❌ Использование:\n"
-                "  /sub <telegram_id> <дата_время>         – подписка 5 устройств\n"
-                "  /sub <telegram_id>_3 <дата_время>       – подписка 3 устройства\n"
-                "  /sub <telegram_id>_10 <дата_время>      – подписка 10 устройств\n"
-                "  /sub <telegram_id>_white <дата_время>   – мобильный тариф\n"
+                "  /sub <telegram_id> <дата_время>              – подписка 5 устройств\n"
+                "  /sub <telegram_id>_3 <дата_время>            – подписка 3 устройства\n"
+                "  /sub <telegram_id>_10 <дата_время>           – подписка 10 устройств\n"
+                "  /sub <telegram_id>-<bot_id>_3 <дата_время>   – полный username в панели\n"
+                "  /sub <telegram_id>_white <дата_время>        – мобильный тариф\n"
                 "Примеры:\n"
                 "  /sub 123456789 2026-02-01 17:14:27\n"
                 "  /sub 123456789_3 2026-02-01 17:14:27\n"
-                "  /sub 123456789_10 2026-02-01 17:14:27\n"
+                "  /sub 123456789-5_3 2026-02-01 17:14:27\n"
                 "Формат даты: YYYY-MM-DD HH:MM:SS"
             )
             return
 
         try:
-            user_id, username, tier = _parse_sub_target(args[1])
+            user_id, username, tier = parse_sub_target(args[1])
         except ValueError:
             await message.answer(
-                "❌ Неверный идентификатор. Используйте telegram_id или telegram_id_3 / _10 / _white."
+                "❌ Неверный идентификатор. Используйте telegram_id, telegram_id_3 / _10 / _white "
+                "или полный username (например 123456789-5_3)."
             )
             return
 
@@ -492,7 +473,7 @@ async def set_subscription_date(message: Message):
             await message.answer("⚠️ Пользователь не найден в БД.")
             return
 
-        hw_lim = _hwid_limit_for_panel_username(username)
+        hw_lim = hwid_limit_from_panel_username(username, default=PRO_HWID_DEVICE_LIMIT)
         try:
             success, actual_date = await x3.set_expiration_date(
                 username, target_date, user_id, hwid_device_limit=hw_lim
@@ -737,7 +718,7 @@ async def sync_panel(message: Message):
                 updated += 1
                 logger.info(f"Обновлена дата для {user_id} до {expire_dt}")
         else:
-            user_id_str = str(user_id)
+            user_id_str = panel_username(user_id, BOT_ID, device_slots=5)
             ud_sync = await sql.get_user(user_id)
             hw_lim = PRO_HWID_DEVICE_LIMIT
             result = await x3.addClient(5, user_id_str, user_id, hwid_device_limit=hw_lim)
@@ -787,20 +768,20 @@ async def shortuuid_export(message: Message):
     updated_white = 0
     skip_no_db = 0
     skip_no_tg = 0
+    skip_white = 0
     skip_no_short = 0
     errors = 0
 
     for user in panel_users:
-        tg_id = user.get("telegramId")
         username = user.get("username") or ""
-        if tg_id is None:
-            if username.isdigit():
-                tg_id = int(username)
-            else:
+        tg_id = user.get("telegramId")
+        if tg_id is not None:
+            tg_id = int(tg_id)
+        else:
+            tg_id = telegram_id_from_panel_username(username)
+            if tg_id is None:
                 skip_no_tg += 1
                 continue
-        else:
-            tg_id = int(tg_id)
 
         short_uuid = user.get("shortUuid")
         if not short_uuid:
@@ -812,11 +793,19 @@ async def shortuuid_export(message: Message):
             skip_no_db += 1
             continue
 
-        is_white = "white" in username
+        is_white = username.endswith("_white")
+        if is_white:
+            skip_white += 1
+            continue
+
+        slot = subscription_db_slot_from_panel_username(username)
         try:
-            if is_white:
-                await sql.update_white_subscription(tg_id, short_uuid)
-                updated_white += 1
+            if slot == "3":
+                await sql.update_subscribtion_3(tg_id, short_uuid)
+                updated_sub += 1
+            elif slot == "10":
+                await sql.update_subscribtion_10(tg_id, short_uuid)
+                updated_sub += 1
             else:
                 await sql.update_subscribtion(tg_id, short_uuid)
                 updated_sub += 1
@@ -831,6 +820,7 @@ async def shortuuid_export(message: Message):
         f"📝 subscribtion обновлено: {updated_sub}\n"
         f"📝 white_subscription обновлено: {updated_white}\n"
         f"⏭ без telegramId/username: {skip_no_tg}\n"
+        f"⏭ white (не хранится в БД partner): {skip_white}\n"
         f"⏭ без shortUuid: {skip_no_short}\n"
         f"⏭ нет в БД: {skip_no_db}\n"
         f"❌ ошибок записи: {errors}"
@@ -884,7 +874,10 @@ async def check_users_command(message: Message):
             # Пытаемся найти пользователя в панели
             panel_user = panel_by_telegram.get(user_id)
             if panel_user is None:
-                panel_user = panel_by_username.get(str(user_id))
+                for uname in panel_usernames_for_lookup(user_id, BOT_ID):
+                    panel_user = panel_by_username.get(uname)
+                    if panel_user is not None:
+                        break
 
             if panel_user is None:
                 not_found_in_panel.append(user_id)
@@ -1033,7 +1026,9 @@ async def send_gift_command(message: Message):
                                        video_faq='🎥 Видеоинструкция',
                                        connect_vpn='🔗 Подключить ВПН'))
             # Добавляем 3 дня подписки
-            result = await x3.updateClient(5, str(user_id), user_id)
+            result = await x3.updateClient(
+                5, panel_username(user_id, BOT_ID, device_slots=5), user_id
+            )
             if result:
                 success_count += 1
                 logger.info(f"Подарок отправлен пользователю {user_id}")

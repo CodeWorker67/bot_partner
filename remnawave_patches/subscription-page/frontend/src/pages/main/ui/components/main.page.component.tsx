@@ -93,13 +93,15 @@ function deviceTierFromUsername(username: string): DeviceTier {
     return 5
 }
 
-/** user_id: числовая часть username; снимаются суффиксы `_white`, `_10`, `_3`. */
+/** user_id: telegram/internal id из username; формат {id}-{bot_id}[_3|_10|_white]. */
 function parseSubPageUserId(username: string): number | null {
     let base = username
     if (base.endsWith('_white')) base = base.slice(0, -'_white'.length)
     if (base.endsWith('_10')) base = base.slice(0, -'_10'.length)
     else if (base.endsWith('_3')) base = base.slice(0, -'_3'.length)
-    const n = Number.parseInt(base, 10)
+    const dash = base.indexOf('-')
+    const idPart = dash >= 0 ? base.slice(0, dash) : base
+    const n = Number.parseInt(idPart, 10)
     return Number.isFinite(n) ? n : null
 }
 
