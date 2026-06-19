@@ -21,9 +21,7 @@ from sheduler.time_mes_not_sub import send_push_cron
 
 
 async def set_commands(bot: Bot):
-    commands = [BotCommand(command="/start", description="Запустить бота")]
-    if OWNER_TG_ID:
-        commands.append(BotCommand(command="/panel", description="Панель партнёра"))
+    commands = [BotCommand(command="start", description="Запустить бота")]
     await bot.set_my_commands(commands)
 
 

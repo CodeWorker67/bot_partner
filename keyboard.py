@@ -622,13 +622,29 @@ def channel_keyboard(channel_url: str) -> InlineKeyboardMarkup:
     ])
 
 
-def keyboard_main(*, show_owner_panel: bool = False, welcome_only: bool = False) -> InlineKeyboardMarkup:
+def keyboard_main(
+    *,
+    show_owner_panel: bool = False,
+    welcome_only: bool = False,
+    show_trial: bool = False,
+) -> InlineKeyboardMarkup:
     if welcome_only:
         return keyboard_start_bonus(show_owner_panel=show_owner_panel)
-    rows = [
+    rows = []
+    if show_trial:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🔥 Попробовать бесплатно",
+                    callback_data="trial_vpn",
+                    style=STYLE_SUCCESS,
+                )
+            ]
+        )
+    rows.extend([
         [InlineKeyboardButton(text="🛒 Купить подписку", callback_data="buy_vpn", style=STYLE_SUCCESS)],
         [InlineKeyboardButton(text="🔗 Подключить ВПН", callback_data="connect_vpn", style=STYLE_PRIMARY)],
-    ]
+    ])
     rows.extend([
         [InlineKeyboardButton(text="💸 Зарабатывай с нами", callback_data="ref_program", style=STYLE_SUCCESS)],
         [InlineKeyboardButton(text="🎁 Подарить подписку", callback_data="buy_gift", style=STYLE_SUCCESS)],

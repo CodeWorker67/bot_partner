@@ -26,6 +26,17 @@ from tariff_resolve import device_from_tariff_key, get_prices, panel_username, t
 router = Router()
 
 
+async def _main_keyboard(user_id: int, *, welcome_only: bool = False):
+    user = await sql.get_user_object_by_user_id(user_id)
+    show_trial = not (user and user.in_panel)
+    is_owner = user_id == OWNER_TG_ID
+    return keyboard_main(
+        show_owner_panel=is_owner,
+        welcome_only=welcome_only,
+        show_trial=show_trial,
+    )
+
+
 async def _ensure_user(message: Message, ref: str = "") -> None:
     tg_id = message.from_user.id
     if not await sql.get_user(tg_id):
@@ -60,8 +71,10 @@ async def process_start_command(message: Message):
         await sql.try_set_ref_from_invite(message.from_user.id, ref_login)
 
     text = lexicon["start_bonus"] if is_new else lexicon["start"]
-    is_owner = message.from_user.id == OWNER_TG_ID
-    await message.answer(text, reply_markup=keyboard_main(show_owner_panel=is_owner, welcome_only=is_new))
+    await message.answer(
+        text,
+        reply_markup=await _main_keyboard(message.from_user.id, welcome_only=is_new),
+    )
 
 
 async def _activate_gift(message: Message, gift_id: str):
@@ -89,10 +102,9 @@ async def _activate_gift(message: Message, gift_id: str):
 
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery):
-    is_owner = callback.from_user.id == OWNER_TG_ID
     await callback.message.edit_text(
         lexicon["start"],
-        reply_markup=keyboard_main(show_owner_panel=is_owner),
+        reply_markup=await _main_keyboard(callback.from_user.id),
     )
     await callback.answer()
 

@@ -190,7 +190,7 @@ class X3:
                 logger.info(f"Код ответа: {response.status}")
 
                 if response.status in [200, 201]:
-                    sql = AsyncSQL()
+                    sql = PartnerSQL()
                     try:
                         response_data = await response.json()
                     except (aiohttp.ClientConnectionError, aiohttp.ContentTypeError, ValueError) as e:
@@ -293,7 +293,7 @@ class X3:
             ) as response:
                 logger.info(f"Код ответа updateClient: {response.status}")
                 if response.status == 200:
-                    sql = AsyncSQL()
+                    sql = PartnerSQL()
                     try:
                         response_data = await response.json()
                     except (aiohttp.ClientConnectionError, aiohttp.ContentTypeError, ValueError) as e:
