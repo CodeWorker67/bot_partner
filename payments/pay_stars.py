@@ -5,7 +5,7 @@ from logging_config import logger
 
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, LabeledPrice, PreCheckoutQuery, Message
-from lexicon import dct_price, lexicon, payment_tariff_summary_pro
+from lexicon import lexicon, payment_tariff_summary_pro
 from payments.process_payload import process_confirmed_payment
 from tariff_resolve import tariff_days_for_x3, device_from_tariff_key, tariff_rub_and_desc
 
@@ -28,8 +28,8 @@ async def process_payment_stars(callback: CallbackQuery):
     else:
         duration_plain = duration_key
 
-    prices = await sql.get_prices()
-    stars_amount, _ = tariff_rub_and_desc(duration_plain if not white_flag else duration_key, prices)
+    partner_prices = await sql.get_prices()
+    stars_amount, _ = tariff_rub_and_desc(duration_plain if not white_flag else duration_key, partner_prices)
     if callback.from_user.id in ADMIN_IDS:
         stars_amount = 1
     user_id = str(callback.from_user.id)
@@ -42,17 +42,17 @@ async def process_payment_stars(callback: CallbackQuery):
         f"method:stars,amount:{stars_amount},device:{device_n},bot_id:{BOT_ID}"
     )
 
-    prices = [LabeledPrice(label="XTR", amount=stars_amount)]
+    labeled_prices = [LabeledPrice(label="XTR", amount=stars_amount)]
     title = f"Оплата подписки {'в подарок другу ' if gift_flag else ''}на {days_payload} дней."
     if white_flag:
         description = lexicon['payment_link_white']
     else:
-        description = payment_tariff_summary_pro(duration_key, prices)
+        description = payment_tariff_summary_pro(duration_key, partner_prices)
     await bot.send_invoice(
         callback.from_user.id,
         title=title,
         description=description,
-        prices=prices,
+        prices=labeled_prices,
         provider_token="",
         payload=payload,
         currency="XTR",

@@ -143,8 +143,8 @@ async def process_payment_crypto(callback: CallbackQuery):
     else:
         duration_key = data.replace('crypto_r_', '')
 
-    prices = await sql.get_prices()
-    rub_amount, des_text = tariff_rub_and_desc(duration_key, prices)
+    partner_prices = await sql.get_prices()
+    rub_amount, des_text = tariff_rub_and_desc(duration_key, partner_prices)
 
     if 'white' in duration_key:
         white_flag = True
@@ -178,7 +178,7 @@ async def process_payment_crypto(callback: CallbackQuery):
         if white_flag:
             text = lexicon['payment_link_white']
         else:
-            text = payment_tariff_summary_pro(duration_key, prices)
+            text = payment_tariff_summary_pro(duration_key, partner_prices)
         if gift_flag:
             text += '\n\nДля оплаты <b>подарочной подписки</b> перейдите по ссылке:'
         else:

@@ -8,10 +8,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import urllib3
 import aiohttp
 
-from config import PANEL_API_TOKEN, PANEL_URL, TRUE_SUB_LINK, MIRROR_SUB_LINK, SHORT_UUID_SECRET, BOT_ID
+from config import PANEL_API_TOKEN, PANEL_URL, TRUE_SUB_LINK, MIRROR_SUB_LINK, SHORT_UUID_SECRET
 from config_bd.partner_sql import PartnerSQL
 from logging_config import logger
-from tariff_resolve import panel_username, subscription_db_slot_from_panel_username
 import random
 import string
 
@@ -77,12 +76,11 @@ class X3:
         client_id: Optional[str] = None,
     ) -> None:
         """Сохраняем окончание подписки (и shortUuid при создании клиента) по образцу username в панели."""
-        slot = subscription_db_slot_from_panel_username(user_id_str)
-        if slot == "3":
+        if user_id_str.endswith('_3'):
             await sql_inst.update_subscription_3_end_date(user_id, subscription_end_date)
             if client_id is not None:
                 await sql_inst.update_subscribtion_3(user_id, client_id)
-        elif slot == "10":
+        elif user_id_str.endswith('_10'):
             await sql_inst.update_subscription_10_end_date(user_id, subscription_end_date)
             if client_id is not None:
                 await sql_inst.update_subscribtion_10(user_id, client_id)
@@ -192,7 +190,7 @@ class X3:
                 logger.info(f"Код ответа: {response.status}")
 
                 if response.status in [200, 201]:
-                    sql = PartnerSQL()
+                    sql = AsyncSQL()
                     try:
                         response_data = await response.json()
                     except (aiohttp.ClientConnectionError, aiohttp.ContentTypeError, ValueError) as e:
@@ -295,7 +293,7 @@ class X3:
             ) as response:
                 logger.info(f"Код ответа updateClient: {response.status}")
                 if response.status == 200:
-                    sql = PartnerSQL()
+                    sql = AsyncSQL()
                     try:
                         response_data = await response.json()
                     except (aiohttp.ClientConnectionError, aiohttp.ContentTypeError, ValueError) as e:
@@ -375,17 +373,18 @@ class X3:
             logger.error(f"Ошибка при получении ссылки для {user_id}: {e}")
         return ""
 
-    def username_for_slot(
-        self,
-        telegram_id: int,
-        slot_key: str,
-        bot_id: int | None = None,
-    ) -> str:
-        bid = bot_id if bot_id is not None else BOT_ID
-        if slot_key == "white":
-            return panel_username(telegram_id, bid, white=True)
-        device_slots = {"main": 5, "3": 3, "10": 10}.get(slot_key, 5)
-        return panel_username(telegram_id, bid, device_slots=device_slots)
+    SUBSCRIPTION_SLOTS: Tuple[Tuple[str, str, str], ...] = (
+        ("main", "", "💫 Подписка · 5 устройств"),
+        ("3", "_3", "💫 Подписка · 3 устройства"),
+        ("10", "_10", "💫 Подписка · 10 устройств"),
+        ("white", "_white", "🦾 Мобильный тариф"),
+    )
+
+    def username_for_slot(self, telegram_id: int, slot_key: str) -> str:
+        for key, suffix, _ in self.SUBSCRIPTION_SLOTS:
+            if key == slot_key:
+                return f"{telegram_id}{suffix}"
+        return str(telegram_id)
 
     @staticmethod
     def _panel_user_from_response(users: Optional[dict]) -> Optional[dict]:
@@ -408,15 +407,16 @@ class X3:
     async def active_subscription_links(
         self, telegram_id: int, bot_id: int | None = None,
     ) -> List[Tuple[str, str, str]]:
+        from config import BOT_ID
         bid = bot_id if bot_id is not None else BOT_ID
         out: List[Tuple[str, str, str]] = []
         slots = (
-            ("main", 5, "💫 Подписка · 5 устройств"),
-            ("3", 3, "💫 Подписка · 3 устройства"),
-            ("10", 10, "💫 Подписка · 10 устройств"),
+            ("main", "", "💫 Подписка · 5 устройств"),
+            ("3", "_3", "💫 Подписка · 3 устройства"),
+            ("10", "_10", "💫 Подписка · 10 устройств"),
         )
-        for slot_key, device_slots, label in slots:
-            username = panel_username(telegram_id, bid, device_slots=device_slots)
+        for slot_key, suffix, label in slots:
+            username = f"{telegram_id}_{bid}{suffix}"
             users = await self.get_user_by_username(username)
             user = self._panel_user_from_response(users)
             if not user or not self._panel_user_is_active(user):
@@ -427,19 +427,12 @@ class X3:
         return out
 
     async def active_subscription_slots(
-        self, telegram_id: int, bot_id: int | None = None,
+        self, telegram_id: int,
     ) -> List[Tuple[str, str, str, str]]:
         """Активные подписки: (ключ слота, подпись, uuid в панели, username)."""
-        bid = bot_id if bot_id is not None else BOT_ID
         out: List[Tuple[str, str, str, str]] = []
-        slots = (
-            ("main", 5, False, "💫 Подписка · 5 устройств"),
-            ("3", 3, False, "💫 Подписка · 3 устройства"),
-            ("10", 10, False, "💫 Подписка · 10 устройств"),
-            ("white", 5, True, "🦾 Мобильный тариф"),
-        )
-        for slot_key, device_slots, white, label in slots:
-            username = panel_username(telegram_id, bid, device_slots=device_slots, white=white)
+        for slot_key, suffix, label in self.SUBSCRIPTION_SLOTS:
+            username = f"{telegram_id}{suffix}"
             users = await self.get_user_by_username(username)
             user = self._panel_user_from_response(users)
             if not user or not self._panel_user_is_active(user):
@@ -532,6 +525,10 @@ class X3:
                 result['activ'] = '✅ - Активен'
             else:
                 result['activ'] = '❌ - Не Активен'
+
+            true_sublink = user.get('subscriptionUrl', '')
+            if true_sublink:
+                result['url'] = true_sublink.replace(TRUE_SUB_LINK, MIRROR_SUB_LINK)
 
             return result
 

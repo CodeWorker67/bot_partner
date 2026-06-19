@@ -538,18 +538,18 @@ def _ru_days_duration_line(days: int) -> str:
     return f'Длительность - {n} {w}'
 
 
-def payment_tariff_summary_pro(desc_key: str, prices: dict[str, int] | None = None) -> str:
-    """Текст тарифа PRO перед оплатой: устройства, срок из колбэка, сумма из актуальных цен."""
+def payment_tariff_summary_pro(desc_key: str, prices: dict | None = None) -> str:
+    """Текст тарифа PRO перед оплатой: устройства, срок, сумма (из prices партнёра или dct_price)."""
     from tariff_resolve import device_from_tariff_key, tariff_days_for_x3, tariff_rub_and_desc
 
     duration_plain = desc_key.replace('white_', '', 1) if desc_key.startswith('white_') else desc_key
-
     if prices is not None:
         price, _ = tariff_rub_and_desc(duration_plain, prices)
     else:
         price = _price_rub_for_desc_key(desc_key)
     if price is None:
         return payment_link_pro_for_hwid(5)
+
     devices = device_from_tariff_key(duration_plain)
     dev_phrase = _ru_device_phrase(devices)
 
