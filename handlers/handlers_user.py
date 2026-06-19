@@ -59,10 +59,9 @@ async def process_start_command(message: Message):
     if is_new and ref_login:
         await sql.try_set_ref_from_invite(message.from_user.id, ref_login)
 
-    user = await sql.get_user(message.from_user.id)
-    text = lexicon["start_bonus"] if not user or not user[4] else lexicon["start"]
+    text = lexicon["start_bonus"] if is_new else lexicon["start"]
     is_owner = message.from_user.id == OWNER_TG_ID
-    await message.answer(text, reply_markup=keyboard_main(show_owner_panel=is_owner, in_panel=user and user[4]))
+    await message.answer(text, reply_markup=keyboard_main(show_owner_panel=is_owner, welcome_only=is_new))
 
 
 async def _activate_gift(message: Message, gift_id: str):
@@ -90,11 +89,10 @@ async def _activate_gift(message: Message, gift_id: str):
 
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery):
-    user = await sql.get_user(callback.from_user.id)
     is_owner = callback.from_user.id == OWNER_TG_ID
     await callback.message.edit_text(
-        lexicon["start"] if user and user[4] else lexicon["start_bonus"],
-        reply_markup=keyboard_main(show_owner_panel=is_owner, in_panel=user and user[4]),
+        lexicon["start"],
+        reply_markup=keyboard_main(show_owner_panel=is_owner),
     )
     await callback.answer()
 
@@ -126,7 +124,7 @@ async def process_payment_method(callback: CallbackQuery):
     price_key = tarif_cb.replace("r_", "", 1)
     amount, desc = tariff_rub_and_desc(price_key, prices)
     device = device_from_tariff_key(price_key)
-    summary = payment_tariff_summary_pro(price_key)
+    summary = payment_tariff_summary_pro(price_key, prices)
     await callback.message.edit_text(
         summary,
         reply_markup=keyboard_payment_methods(tarif_cb, amount, is_gift=False),
@@ -210,7 +208,7 @@ async def gift_payment_method(callback: CallbackQuery):
     price_key = tarif_cb.replace("r_", "", 1)
     amount, desc = tariff_rub_and_desc(price_key, prices)
     device = device_from_tariff_key(price_key)
-    summary = payment_tariff_summary_pro(price_key)
+    summary = payment_tariff_summary_pro(price_key, prices)
     await callback.message.edit_text(
         summary,
         reply_markup=keyboard_payment_methods(tarif_cb, amount, is_gift=True),

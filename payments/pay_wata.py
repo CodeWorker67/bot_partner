@@ -310,7 +310,8 @@ async def process_payment_wata_sbp(callback: CallbackQuery):
     data = callback.data
     duration, gift_flag = _duration_from_wata_callback(data, "wata_sbp_r_", "wata_sbp_gift_r_")
     desc_key = duration
-    rub_amount, des_text = tariff_rub_and_desc(desc_key)
+    prices = await sql.get_prices()
+    rub_amount, des_text = tariff_rub_and_desc(desc_key, prices)
     if callback.from_user.id in ADMIN_IDS:
         rub_amount = 1
     user_id = str(callback.from_user.id)
@@ -349,7 +350,7 @@ async def process_payment_wata_sbp(callback: CallbackQuery):
             if white_flag:
                 text = lexicon["payment_link_white"]
             else:
-                text = payment_tariff_summary_pro(desc_key)
+                text = payment_tariff_summary_pro(desc_key, prices)
             if gift_flag:
                 text += "\n\nДля оплаты <b>подарочной подписки</b> перейдите по ссылке:"
             else:
@@ -370,7 +371,8 @@ async def process_payment_wata_card(callback: CallbackQuery):
     data = callback.data
     duration, gift_flag = _duration_from_wata_callback(data, "wata_card_r_", "wata_card_gift_r_")
     desc_key = duration
-    rub_amount, des_text = tariff_rub_and_desc(desc_key)
+    prices = await sql.get_prices()
+    rub_amount, des_text = tariff_rub_and_desc(desc_key, prices)
     if callback.from_user.id in ADMIN_IDS:
         rub_amount = 1
     user_id = str(callback.from_user.id)
@@ -416,7 +418,7 @@ async def process_payment_wata_card(callback: CallbackQuery):
             if white_flag:
                 text = lexicon["payment_link_white"]
             else:
-                text = payment_tariff_summary_pro(desc_key)
+                text = payment_tariff_summary_pro(desc_key, prices)
             if gift_flag:
                 text += "\n\nДля оплаты <b>подарочной подписки</b> перейдите по ссылке:"
             else:

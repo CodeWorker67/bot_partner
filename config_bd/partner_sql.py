@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from datetime import datetime, date, timezone, timedelta
 from decimal import Decimal
@@ -10,7 +11,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from sqlalchemy import and_, func, or_, select, update, delete, literal, case, cast, Date, union_all
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from config import BOT_ID, DEFAULT_PRICES, MIN_PRICES, TRIAL_DAYS_MAX, TRIAL_DAYS_MIN
+from config import BOT_ID, DEFAULT_PRICES, TRIAL_DAYS_MAX, TRIAL_DAYS_MIN
 from lexicon import PAYMENT_MINOR_THRESHOLD_RUB
 from config_bd.models import (
     AsyncSessionLocal,
@@ -263,24 +264,49 @@ class PartnerSQL:
             )
             await session.commit()
 
-    async def get_prices(self) -> Dict[str, int]:
+    async def get_custom_prices(self) -> Dict[str, int]:
         settings = await self.get_bot_settings()
-        if settings and settings.get("prices_json"):
-            try:
-                return {**DEFAULT_PRICES, **json.loads(settings["prices_json"])}
-            except json.JSONDecodeError:
-                pass
-        return dict(DEFAULT_PRICES)
+        if not settings or not settings.get("prices_json"):
+            return {}
+        try:
+            data = json.loads(settings["prices_json"])
+        except json.JSONDecodeError:
+            return {}
+        return {
+            k: v
+            for k, v in data.items()
+            if k in DEFAULT_PRICES and v != DEFAULT_PRICES[k]
+        }
+
+    async def get_prices(self) -> Dict[str, int]:
+        custom = await self.get_custom_prices()
+        return {**DEFAULT_PRICES, **custom}
+
+    async def _save_custom_prices(self, custom: Dict[str, int]) -> None:
+        await self.update_bot_settings(
+            prices_json=json.dumps(custom, ensure_ascii=False) if custom else None
+        )
 
     async def set_price(self, key: str, price: int) -> Tuple[bool, str]:
         if key not in DEFAULT_PRICES:
             return False, "Неизвестный тариф"
-        min_p = MIN_PRICES.get(key, 50)
+        min_p = DEFAULT_PRICES[key]
         if price < min_p:
-            return False, f"Минимальная цена: {min_p} ₽"
-        prices = await self.get_prices()
-        prices[key] = price
-        await self.update_bot_settings(prices_json=json.dumps(prices))
+            return False, f"Минимальная цена: {min_p} ₽ (нельзя ниже базового тарифа)"
+        custom = await self.get_custom_prices()
+        if price == min_p:
+            custom.pop(key, None)
+        else:
+            custom[key] = price
+        await self._save_custom_prices(custom)
+        return True, "OK"
+
+    async def reset_price(self, key: str) -> Tuple[bool, str]:
+        if key not in DEFAULT_PRICES:
+            return False, "Неизвестный тариф"
+        custom = await self.get_custom_prices()
+        custom.pop(key, None)
+        await self._save_custom_prices(custom)
         return True, "OK"
 
     async def set_trial_days(self, days: int) -> Tuple[bool, str]:
@@ -361,8 +387,8 @@ class PartnerSQL:
             return [r[0] for r in (await session.execute(stmt)).all()]
 
     async def alloc_fk_api_nonce(self) -> int:
-        import time
-        return int(time.time() * 1000)
+        """Уникальный растущий nonce для FreeKassa API без отдельной таблицы."""
+        return time.time_ns() // 1000
 
     async def add_fk_sbp_payment(
         self,

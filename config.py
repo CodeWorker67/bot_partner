@@ -82,6 +82,4 @@ DEFAULT_PRICES: Dict[str, int] = {
     "m12_d10": _price_env("m12_d10", 3239),
 }
 
-MIN_PRICES: Dict[str, int] = {
-    k: _min_price_env(k, max(50, v // 2)) for k, v in DEFAULT_PRICES.items()
-}
+MIN_PRICES: Dict[str, int] = dict(DEFAULT_PRICES)

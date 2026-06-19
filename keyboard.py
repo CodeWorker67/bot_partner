@@ -5,7 +5,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot_display import bot_display_name
-from config import BOT_URL, SUPPORT_URL
+from config import BOT_URL, DEFAULT_PRICES, SUPPORT_URL
 from tariff_resolve import dct_desc
 
 BTN_BACK = "🔙 Назад"
@@ -614,8 +614,8 @@ def channel_keyboard(channel_url: str) -> InlineKeyboardMarkup:
     ])
 
 
-def keyboard_main(*, show_owner_panel: bool = False, in_panel: bool = False) -> InlineKeyboardMarkup:
-    if not in_panel:
+def keyboard_main(*, show_owner_panel: bool = False, welcome_only: bool = False) -> InlineKeyboardMarkup:
+    if welcome_only:
         return keyboard_start_bonus(show_owner_panel=show_owner_panel)
     rows = [
         [InlineKeyboardButton(text="🛒 Купить подписку", callback_data="buy_vpn", style=STYLE_SUCCESS)],
@@ -667,6 +667,63 @@ def keyboard_ref_dashboard():
     return create_kb(1, back_to_main=BTN_BACK)
 
 
+_OWNER_MONTH_LABEL = {1: "1 мес", 3: "3 мес", 6: "6 мес", 12: "12 мес"}
+
+
+def owner_price_button_label(key: str, prices: dict, custom: dict) -> str:
+    months = int(key.split("_d")[0][1:])
+    label = _OWNER_MONTH_LABEL.get(months, f"{months} мес")
+    base = DEFAULT_PRICES[key]
+    current = prices.get(key, base)
+    if key in custom:
+        return f"{label}: {current}₽"
+    return f"{label}: {base}₽ база"
+
+
+def keyboard_owner_prices_tiers() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="🔹 Тарифы на 3️⃣ устройства",
+            callback_data="owner_prices_tier_3",
+            style=STYLE_SUCCESS,
+        )],
+        [InlineKeyboardButton(
+            text="🔸 Тарифы на 5️⃣ устройств",
+            callback_data="owner_prices_tier_5",
+            style=STYLE_SUCCESS,
+        )],
+        [InlineKeyboardButton(
+            text="🏆 Тарифы на 🔟 устройств",
+            callback_data="owner_prices_tier_10",
+            style=STYLE_SUCCESS,
+        )],
+        [InlineKeyboardButton(text="⬅️ В панель", callback_data="owner_panel", style=STYLE_PRIMARY)],
+    ])
+
+
+def keyboard_owner_prices_periods(devices: int, prices: dict, custom: dict) -> InlineKeyboardMarkup:
+    rows = []
+    for months in (1, 3, 6, 12):
+        key = f"m{months}_d{devices}"
+        rows.append([InlineKeyboardButton(
+            text=owner_price_button_label(key, prices, custom),
+            callback_data=f"owner_price_edit_{key}",
+            style=STYLE_SUCCESS,
+        )])
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="owner_prices", style=STYLE_PRIMARY)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def keyboard_owner_price_cancel(devices: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="❌ Отмена",
+            callback_data=f"owner_prices_tier_{devices}",
+            style=STYLE_DANGER,
+        )],
+    ])
+
+
 def keyboard_owner_main():
     return create_kb(
         1,
@@ -683,7 +740,7 @@ def keyboard_owner_main():
         owner_broadcast="📣 Рассылка",
         owner_channel="📢 Канал для подписки",
         owner_users="👥 Мои юзеры",
-        owner_prices="💰 Мои цены",
+        owner_prices="🏷️ Мои цены",
         owner_trial="🎁 Триал",
         owner_balance="💳 Баланс и вывод",
         back_to_main=BTN_BACK,

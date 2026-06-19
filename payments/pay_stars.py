@@ -47,7 +47,7 @@ async def process_payment_stars(callback: CallbackQuery):
     if white_flag:
         description = lexicon['payment_link_white']
     else:
-        description = payment_tariff_summary_pro(duration_key)
+        description = payment_tariff_summary_pro(duration_key, prices)
     await bot.send_invoice(
         callback.from_user.id,
         title=title,

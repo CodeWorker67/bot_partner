@@ -389,7 +389,7 @@ async def _handle_wata_style_callback(callback: CallbackQuery, ui_kind: UiKind) 
             if white_flag:
                 text = lexicon["payment_link_white"]
             else:
-                text = payment_tariff_summary_pro(desc_key)
+                text = payment_tariff_summary_pro(desc_key, prices)
             if gift_flag:
                 text += "\n\nДля оплаты <b>подарочной подписки</b> перейдите по ссылке:"
             else:

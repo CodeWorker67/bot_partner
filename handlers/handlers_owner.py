@@ -9,8 +9,15 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
 from bot import bot, sql
-from config import OWNER_TG_ID, PARTNER_MIN_WITHDRAW, PARTNER_SUPPORT_URL, TARIFF_KEYS, TRIAL_DAYS_MAX, TRIAL_DAYS_MIN
-from keyboard import BTN_BACK, create_kb, keyboard_owner_main
+from config import OWNER_TG_ID, PARTNER_MIN_WITHDRAW, PARTNER_SUPPORT_URL, TARIFF_KEYS, TRIAL_DAYS_MAX, TRIAL_DAYS_MIN, DEFAULT_PRICES
+from keyboard import (
+    BTN_BACK,
+    create_kb,
+    keyboard_owner_main,
+    keyboard_owner_price_cancel,
+    keyboard_owner_prices_periods,
+    keyboard_owner_prices_tiers,
+)
 from lexicon import lexicon
 from logging_config import logger
 from tariff_resolve import dct_desc
@@ -21,7 +28,6 @@ router = Router()
 class OwnerFSM(StatesGroup):
     broadcast_text = State()
     channel_input = State()
-    price_key = State()
     price_value = State()
     trial_days = State()
     search_user = State()
@@ -199,30 +205,69 @@ async def owner_search_user(message: Message, state: FSMContext):
     )
 
 
-@router.callback_query(F.data == "owner_prices")
-@_owner_only
-async def owner_prices(callback: CallbackQuery, state: FSMContext):
+async def _show_owner_prices_tiers(target: CallbackQuery | Message) -> None:
+    text = (
+        "🏷️ <b>Мои цены</b>\n\n"
+        "Базовые цены — минимум, ниже которого вы не можете опускаться.\n"
+        "Выберите категорию устройств, чтобы назначить свою цену."
+    )
+    kb = keyboard_owner_prices_tiers()
+    if isinstance(target, CallbackQuery):
+        await target.message.edit_text(text, reply_markup=kb)
+        await target.answer()
+    else:
+        await target.answer(text, reply_markup=kb)
+
+
+async def _show_owner_prices_periods(callback: CallbackQuery, devices: int) -> None:
     prices = await sql.get_prices()
-    lines = [f"<code>{k}</code>: {prices.get(k, 0)} ₽ — {dct_desc.get(k, '')}" for k in TARIFF_KEYS]
-    await state.set_state(OwnerFSM.price_key)
+    custom = await sql.get_custom_prices()
+    tier_label = {3: "3️⃣", 5: "5️⃣", 10: "🔟"}.get(devices, str(devices))
     await callback.message.edit_text(
-        "💰 Текущие цены:\n\n" + "\n".join(lines) + "\n\nВведите ключ тарифа (например m1_d3):",
-        reply_markup=create_kb(1, owner_panel=BTN_BACK),
+        f"🏷️ <b>Тарифы на {tier_label} устройства</b>\n\n"
+        "Нажмите на период, чтобы назначить свою цену.",
+        reply_markup=keyboard_owner_prices_periods(devices, prices, custom),
     )
     await callback.answer()
 
 
-@router.message(OwnerFSM.price_key)
+@router.callback_query(F.data == "owner_prices")
 @_owner_only
-async def owner_price_key(message: Message, state: FSMContext):
-    key = message.text.strip()
+async def owner_prices(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await _show_owner_prices_tiers(callback)
+
+
+@router.callback_query(F.data.regexp(r"^owner_prices_tier_(\d+)$"))
+@_owner_only
+async def owner_prices_tier(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    devices = int(callback.data.rsplit("_", 1)[-1])
+    await _show_owner_prices_periods(callback, devices)
+
+
+@router.callback_query(F.data.startswith("owner_price_edit_"))
+@_owner_only
+async def owner_price_edit(callback: CallbackQuery, state: FSMContext):
+    key = callback.data.replace("owner_price_edit_", "", 1)
     if key not in TARIFF_KEYS:
-        await message.answer("❌ Неизвестный тариф.", reply_markup=keyboard_owner_main())
-        await state.clear()
+        await callback.answer("Неизвестный тариф", show_alert=True)
         return
-    await state.update_data(price_key=key)
+    devices = int(key.rsplit("_d", 1)[-1])
+    prices = await sql.get_prices()
+    base = DEFAULT_PRICES[key]
+    current = prices[key]
+    await state.update_data(price_key=key, devices=devices)
     await state.set_state(OwnerFSM.price_value)
-    await message.answer(f"Введите новую цену для {key} (₽):")
+    await callback.message.edit_text(
+        f"🏷️ {dct_desc.get(key, key)}\n\n"
+        f"• Базовая цена (минимум): {base} ₽\n"
+        f"• Ваша текущая: {current} ₽\n\n"
+        "Отправьте новую цену в рублях (целое число) — она не может быть ниже базовой.\n"
+        "Отправьте «-» чтобы сбросить на базовую.",
+        reply_markup=keyboard_owner_price_cancel(devices),
+    )
+    await callback.answer()
 
 
 @router.message(OwnerFSM.price_value)
@@ -230,16 +275,27 @@ async def owner_price_key(message: Message, state: FSMContext):
 async def owner_price_value(message: Message, state: FSMContext):
     data = await state.get_data()
     key = data.get("price_key")
-    try:
-        price = int(message.text.strip())
-    except ValueError:
-        await message.answer("❌ Введите число.")
-        return
-    ok, err = await sql.set_price(key, price)
+    devices = data.get("devices", 3)
+    raw = (message.text or "").strip()
+
+    if raw == "-":
+        ok, err = await sql.reset_price(key)
+        result_text = f"✅ Цена сброшена на базовую ({DEFAULT_PRICES[key]} ₽)" if ok else f"❌ {err}"
+    else:
+        try:
+            price = int(raw)
+        except ValueError:
+            await message.answer("❌ Введите целое число или «-» для сброса.")
+            return
+        ok, err = await sql.set_price(key, price)
+        result_text = f"✅ Цена {dct_desc.get(key, key)} = {price} ₽" if ok else f"❌ {err}"
+
     await state.clear()
+    prices = await sql.get_prices()
+    custom = await sql.get_custom_prices()
     await message.answer(
-        f"✅ Цена {key} = {price} ₽" if ok else f"❌ {err}",
-        reply_markup=keyboard_owner_main(),
+        result_text,
+        reply_markup=keyboard_owner_prices_periods(devices, prices, custom),
     )
 
 
