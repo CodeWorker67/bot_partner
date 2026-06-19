@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from datetime import datetime, date, timezone, timedelta
 from decimal import Decimal
@@ -361,8 +362,8 @@ class PartnerSQL:
             return [r[0] for r in (await session.execute(stmt)).all()]
 
     async def alloc_fk_api_nonce(self) -> int:
-        import time
-        return int(time.time() * 1000)
+        """Уникальный растущий nonce для FreeKassa API без отдельной таблицы."""
+        return time.time_ns() // 1000
 
     async def add_fk_sbp_payment(
         self,
