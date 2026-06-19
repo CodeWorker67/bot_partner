@@ -119,7 +119,7 @@ async def import_select_sub(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data.contains("_sub_"))
+@router.callback_query(F.data.startswith("import_") & F.data.contains("_sub_"))
 @require_channel_sub
 async def import_end(callback: CallbackQuery):
     await callback.answer()
