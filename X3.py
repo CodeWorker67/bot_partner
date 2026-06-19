@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse, urlunparse
 
 import urllib3
 import aiohttp
@@ -15,6 +16,50 @@ import random
 import string
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+def _strip_url_scheme(value: str) -> str:
+    value = value.rstrip("/")
+    for prefix in ("https://", "http://"):
+        if value.lower().startswith(prefix):
+            return value[len(prefix):]
+    return value
+
+
+def mirror_subscription_url(url: str) -> str:
+    """Подмена домена подписки на mirror без дублирования https://."""
+    if not url:
+        return url
+    if not TRUE_SUB_LINK or not MIRROR_SUB_LINK:
+        return url
+
+    true_host = _strip_url_scheme(TRUE_SUB_LINK)
+    mirror_host = _strip_url_scheme(MIRROR_SUB_LINK)
+    if not true_host or not mirror_host:
+        result = url.replace(TRUE_SUB_LINK, MIRROR_SUB_LINK)
+    else:
+        full_url = url if "://" in url else f"https://{url.lstrip('/')}"
+        parsed = urlparse(full_url)
+        if parsed.netloc == true_host or true_host in url:
+            mirror_parsed = urlparse(
+                MIRROR_SUB_LINK if "://" in MIRROR_SUB_LINK else f"https://{MIRROR_SUB_LINK}"
+            )
+            result = urlunparse((
+                mirror_parsed.scheme or "https",
+                mirror_parsed.netloc or mirror_host,
+                parsed.path,
+                parsed.params,
+                parsed.query,
+                parsed.fragment,
+            ))
+        else:
+            result = url.replace(TRUE_SUB_LINK, MIRROR_SUB_LINK)
+
+    while "https://https://" in result:
+        result = result.replace("https://https://", "https://")
+    while "http://https://" in result:
+        result = result.replace("http://https://", "https://")
+    return result
 
 
 class X3:
@@ -367,8 +412,7 @@ class X3:
                 raw = users['response']
                 user = raw[0] if isinstance(raw, list) else raw
                 true_sublink = user.get('subscriptionUrl', '')
-                mirror_sublink = true_sublink.replace(TRUE_SUB_LINK, MIRROR_SUB_LINK)
-                return mirror_sublink
+                return mirror_subscription_url(true_sublink)
         except Exception as e:
             logger.error(f"Ошибка при получении ссылки для {user_id}: {e}")
         return ""
@@ -528,7 +572,7 @@ class X3:
 
             true_sublink = user.get('subscriptionUrl', '')
             if true_sublink:
-                result['url'] = true_sublink.replace(TRUE_SUB_LINK, MIRROR_SUB_LINK)
+                result['url'] = mirror_subscription_url(true_sublink)
 
             return result
 
