@@ -1,6 +1,7 @@
 """Панель партнёра (владелец бота)."""
 import functools
 import inspect
+from datetime import datetime, timezone, timedelta
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -10,12 +11,14 @@ from aiogram.types import CallbackQuery, Message
 
 from bot import bot, sql
 from config import OWNER_TG_ID, PARTNER_MIN_WITHDRAW, PARTNER_SUPPORT_URL, TARIFF_KEYS, TRIAL_DAYS_MAX, TRIAL_DAYS_MIN, DEFAULT_PRICES
-from keyboard import BTN_BACK, create_kb, keyboard_owner_main
+from config_bd.partner_sql import parse_user_profile, pro_subscription_end_active, user_has_active_pro_subscription
+from keyboard import BTN_BACK, create_kb, keyboard_owner_main, keyboard_owner_prices, keyboard_owner_users
 from lexicon import lexicon
 from logging_config import logger
-from tariff_resolve import dct_desc
+from tariff_resolve import OWNER_PRICE_SHORT
 
 router = Router()
+OWNER_USERS_PAGE_SIZE = 8
 
 
 def _resolve_channel_input(raw: str) -> tuple[str, str] | None:
@@ -51,10 +54,9 @@ def _resolve_channel_input(raw: str) -> tuple[str, str] | None:
 class OwnerFSM(StatesGroup):
     broadcast_text = State()
     channel_input = State()
-    price_key = State()
     price_value = State()
     trial_days = State()
-    search_user = State()
+    owner_user_search = State()
 
 
 def _owner_only(handler):
@@ -91,15 +93,31 @@ async def owner_panel_cb(callback: CallbackQuery):
 @router.callback_query(F.data == "owner_stats")
 @_owner_only
 async def owner_stats(callback: CallbackQuery):
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = now - timedelta(days=7)
+    month_start = now - timedelta(days=30)
+
     users = await sql.count_users()
-    active = await sql.count_active_subscriptions()
-    revenue = await sql.sum_revenue()
-    trial = await sql.count_trial_users()
-    paid = await sql.count_paid_users()
-    conversion = f"{paid * 100 // trial}%" if trial else "—"
-    online = await sql.get_latest_online()
-    online_txt = f"{online.users_active}" if online else "—"
-    text = lexicon["owner_stats"].format(users, active, revenue, online_txt, conversion)
+    visits_today = await sql.count_bot_visits_since(today_start)
+    visits_week = await sql.count_bot_visits_since(week_start)
+    visits_month = await sql.count_bot_visits_since(month_start)
+
+    settings = await sql.get_bot_settings()
+    balance = (settings or {}).get("partner_balance", 0) or 0
+    balance_txt = f"{balance:.2f}"
+
+    partner_since = (settings or {}).get("partner_since") if settings else None
+    if partner_since:
+        if partner_since.tzinfo is not None:
+            partner_since = partner_since.astimezone(timezone.utc).replace(tzinfo=None)
+        partner_since_txt = partner_since.strftime("%d.%m.%Y")
+    else:
+        partner_since_txt = "—"
+
+    text = lexicon["owner_stats"].format(
+        users, visits_today, visits_week, visits_month, balance_txt, partner_since_txt
+    )
     await callback.message.edit_text(text, reply_markup=create_kb(1, owner_panel=BTN_BACK))
     await callback.answer()
 
@@ -192,74 +210,270 @@ async def owner_channel_save(message: Message, state: FSMContext):
     )
 
 
+async def _owner_user_button_label(user) -> str:
+    profile = parse_user_profile(user.field_str_2)
+    name = (profile.get("full_name") or "").strip()
+    username = (profile.get("username") or "").strip()
+    if not name and not username:
+        try:
+            chat = await bot.get_chat(user.user_id)
+            name = (chat.full_name or "").strip()
+            username = (chat.username or "").strip()
+        except Exception:
+            pass
+    if name and username:
+        return f"{name} (@{username})"
+    if username:
+        return f"@{username}"
+    if name:
+        return name
+    return f"ID {user.user_id}"
+
+
+def _parse_iso_dt(raw: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def _fmt_dt(dt: datetime) -> str:
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt.strftime("%d.%m.%Y %H:%M")
+
+
+def _relative_days_ru(dt: datetime) -> str:
+    now = datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    days = (now.date() - dt.astimezone(timezone.utc).date()).days
+    if days <= 0:
+        return "сегодня"
+    if days == 1:
+        return "вчера"
+    return f"{days} дн. назад"
+
+
+def _last_activity_dt(user, profile: dict) -> datetime | None:
+    raw = profile.get("last_activity")
+    if raw:
+        parsed = _parse_iso_dt(raw)
+        if parsed:
+            return parsed
+    if user.last_broadcast_date:
+        return user.last_broadcast_date
+    return user.create_user
+
+
+def _subscription_line(user) -> str:
+    if not user_has_active_pro_subscription(user):
+        return "Нет подписки"
+    active_ends = [
+        d for d in (
+            user.subscription_end_date,
+            user.subscription_3_end_date,
+            user.subscription_10_end_date,
+        )
+        if d and pro_subscription_end_active(d)
+    ]
+    if not active_ends:
+        return "Нет подписки"
+    latest = max(active_ends)
+    return f"Активна до {_fmt_dt(latest)}"
+
+
+async def _resolve_user_profile(user) -> tuple[str, str | None, str]:
+    profile = parse_user_profile(user.field_str_2)
+    name = (profile.get("full_name") or "").strip()
+    username = (profile.get("username") or "").strip()
+    language = (profile.get("language") or "").strip()
+    if not name and not username:
+        try:
+            chat = await bot.get_chat(user.user_id)
+            name = (chat.full_name or "").strip()
+            username = (chat.username or "").strip()
+            if not language:
+                language = (chat.language_code or "").strip()
+        except Exception:
+            pass
+    return name or f"ID {user.user_id}", username or None, language or "—"
+
+
+async def _format_owner_user_detail(user) -> str:
+    name, username, language = await _resolve_user_profile(user)
+    profile = parse_user_profile(user.field_str_2)
+    uid = user.user_id
+    status = "✅ Активен" if not user.is_delete else "🚫 Заблокирован"
+    username_line = f'<a href="https://t.me/{username}">@{username}</a>' if username else "—"
+    balance = user.ref_balance or 0
+    tx_count = await sql.count_user_transactions(uid)
+    reg_dt = user.create_user or datetime.now()
+    if reg_dt.tzinfo is None:
+        reg_dt = reg_dt.replace(tzinfo=timezone.utc)
+    last_dt = _last_activity_dt(user, profile) or reg_dt
+    if last_dt.tzinfo is None:
+        last_dt = last_dt.replace(tzinfo=timezone.utc)
+    days_since = (datetime.now(timezone.utc).date() - reg_dt.astimezone(timezone.utc).date()).days
+    return (
+        "💻 <b>Управление пользователем</b>\n\n"
+        "<b>Основная информация</b>\n"
+        f"• Имя: {name}\n"
+        f'• ID: <a href="tg://user?id={uid}">{uid}</a>\n'
+        f"• Username: {username_line}\n"
+        f"• Статус: {status}\n"
+        f"• Язык: {language}\n\n"
+        "<b>Финансы</b>\n"
+        f"• Баланс: {balance} ₽\n"
+        f"• Транзакций: {tx_count}\n\n"
+        "<b>Активность</b>\n"
+        f"• Регистрация: {_fmt_dt(reg_dt)}\n"
+        f"• Последняя активность: {_relative_days_ru(last_dt)}\n"
+        f"• Дней с регистрации: {days_since}\n\n"
+        "<b>Подписка</b>\n"
+        f"• {_subscription_line(user)}"
+    )
+
+
+async def _show_owner_users_list(
+    target: Message | CallbackQuery,
+    state: FSMContext,
+    *,
+    page: int = 0,
+    notice: str = "",
+):
+    await state.clear()
+    total = await sql.count_users()
+    total_pages = max(1, (total + OWNER_USERS_PAGE_SIZE - 1) // OWNER_USERS_PAGE_SIZE)
+    page = min(max(0, page), total_pages - 1)
+    await state.update_data(owner_users_page=page)
+    users = await sql.list_users(offset=page * OWNER_USERS_PAGE_SIZE, limit=OWNER_USERS_PAGE_SIZE)
+    buttons = []
+    for user in users:
+        buttons.append((user.user_id, await _owner_user_button_label(user)))
+    text = notice + lexicon["owner_users_intro"].format(page + 1, total_pages)
+    kb = keyboard_owner_users(buttons, page=page, total_pages=total_pages)
+    if isinstance(target, CallbackQuery):
+        await target.message.edit_text(text, reply_markup=kb)
+        await target.answer()
+    else:
+        await target.answer(text, reply_markup=kb)
+
+
+async def _show_owner_user_detail(target: Message | CallbackQuery, user, *, page: int = 0):
+    text = await _format_owner_user_detail(user)
+    kb = create_kb(1, **{f"owner_users_page:{page}": "⬅️ Назад к списку"})
+    if isinstance(target, CallbackQuery):
+        await target.message.edit_text(text, reply_markup=kb)
+        await target.answer()
+    else:
+        await target.answer(text, reply_markup=kb)
+
+
 @router.callback_query(F.data == "owner_users")
 @_owner_only
 async def owner_users(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(OwnerFSM.search_user)
-    users = await sql.list_users(limit=10)
-    lines = []
-    for u in users:
-        sub = "активна" if u.subscription_end_date or u.subscription_3_end_date or u.subscription_10_end_date else "нет"
-        lines.append(f"<code>{u.user_id}</code> — {sub}")
-    text = "👥 Последние пользователи:\n\n" + ("\n".join(lines) or "пусто")
-    text += "\n\n🔍 Введите TG ID для поиска:"
-    await callback.message.edit_text(text, reply_markup=create_kb(1, owner_panel=BTN_BACK))
+    await _show_owner_users_list(callback, state)
+
+
+@router.callback_query(F.data.startswith("owner_users_page:"))
+@_owner_only
+async def owner_users_page(callback: CallbackQuery, state: FSMContext):
+    page = int(callback.data.split(":", 1)[1])
+    await _show_owner_users_list(callback, state, page=page)
+
+
+@router.callback_query(F.data.startswith("owner_user_view:"))
+@_owner_only
+async def owner_user_view(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    page = int(data.get("owner_users_page", 0))
+    try:
+        user_id = int(callback.data.split(":", 1)[1])
+    except ValueError:
+        await callback.answer("Некорректный ID", show_alert=True)
+        return
+    user = await sql.search_user_by_id(user_id)
+    if not user:
+        await callback.answer("Пользователь не найден", show_alert=True)
+        return
+    await state.update_data(owner_users_page=page)
+    await _show_owner_user_detail(callback, user, page=page)
+
+
+@router.callback_query(F.data == "owner_users_search")
+@_owner_only
+async def owner_users_search_start(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(OwnerFSM.owner_user_search)
+    await callback.message.edit_text(
+        lexicon["owner_users_search"],
+        reply_markup=create_kb(1, owner_users="❌ Отмена"),
+    )
     await callback.answer()
 
 
-@router.message(OwnerFSM.search_user)
+@router.message(OwnerFSM.owner_user_search)
 @_owner_only
-async def owner_search_user(message: Message, state: FSMContext):
-    await state.clear()
-    try:
-        tg_id = int(message.text.strip())
-    except ValueError:
-        await message.answer("❌ Введите числовой TG ID.", reply_markup=keyboard_owner_main())
+async def owner_users_search_query(message: Message, state: FSMContext):
+    raw = (message.text or "").strip()
+    if not raw:
+        await message.answer("❌ Введите Telegram ID или @username.")
         return
-    user = await sql.search_user_by_id(tg_id)
+
+    user = None
+    if raw.lstrip("@").isdigit():
+        user = await sql.search_user_by_id(int(raw.lstrip("@")))
+    else:
+        user = await sql.search_user_by_username(raw)
+
     if not user:
-        await message.answer("Пользователь не найден.", reply_markup=keyboard_owner_main())
+        await message.answer(
+            "❌ Пользователь не найден.",
+            reply_markup=create_kb(1, owner_users="⬅️ К списку"),
+        )
         return
-    trial = "да" if user.field_bool_3 else "нет"
-    paid = "да" if user.reserve_field else "нет"
-    end = user.subscription_end_date or user.subscription_3_end_date or user.subscription_10_end_date
-    await message.answer(
-        f"👤 <b>{tg_id}</b>\n"
-        f"Триал: {trial}\nПлатный: {paid}\n"
-        f"Подписка до: {end or '—'}\n"
-        f"В канале: {'да' if user.in_chanel else 'нет'}",
-        reply_markup=keyboard_owner_main(),
-    )
+
+    await state.clear()
+    await _show_owner_user_detail(message, user)
+
+
+async def _show_owner_prices(target: Message | CallbackQuery, state: FSMContext, *, notice: str = ""):
+    await state.clear()
+    prices = await sql.get_prices()
+    overrides = await sql.get_price_overrides()
+    text = notice + lexicon["owner_prices_intro"]
+    kb = keyboard_owner_prices(prices, overrides)
+    if isinstance(target, CallbackQuery):
+        await target.message.edit_text(text, reply_markup=kb)
+        await target.answer()
+    else:
+        await target.answer(text, reply_markup=kb)
 
 
 @router.callback_query(F.data == "owner_prices")
 @_owner_only
 async def owner_prices(callback: CallbackQuery, state: FSMContext):
+    await _show_owner_prices(callback, state)
+
+
+@router.callback_query(F.data.startswith("owner_price_edit:"))
+@_owner_only
+async def owner_price_edit(callback: CallbackQuery, state: FSMContext):
+    key = callback.data.split(":", 1)[1]
+    if key not in TARIFF_KEYS:
+        await callback.answer("Неизвестный тариф", show_alert=True)
+        return
     prices = await sql.get_prices()
-    lines = [f"<code>{k}</code>: {prices.get(k, 0)} ₽ — {dct_desc.get(k, '')}" for k in TARIFF_KEYS]
-    await state.set_state(OwnerFSM.price_key)
+    label = OWNER_PRICE_SHORT.get(key, key)
+    base = DEFAULT_PRICES[key]
+    current = prices[key]
+    await state.set_state(OwnerFSM.price_value)
+    await state.update_data(price_key=key)
     await callback.message.edit_text(
-        "💰 Текущие цены:\n\n" + "\n".join(lines) + "\n\nВведите ключ тарифа (например m1_d3):",
-        reply_markup=create_kb(1, owner_panel=BTN_BACK),
+        lexicon["owner_price_edit"].format(label, base, current),
+        reply_markup=create_kb(1, owner_prices="❌ Отмена"),
     )
     await callback.answer()
-
-
-@router.message(OwnerFSM.price_key)
-@_owner_only
-async def owner_price_key(message: Message, state: FSMContext):
-    key = message.text.strip()
-    if key not in TARIFF_KEYS:
-        await message.answer("❌ Неизвестный тариф.", reply_markup=keyboard_owner_main())
-        await state.clear()
-        return
-    await state.update_data(price_key=key)
-    await state.set_state(OwnerFSM.price_value)
-    default_p = DEFAULT_PRICES[key]
-    await message.answer(
-        f"Введите новую цену для {key} (₽).\n"
-        f"Минимум — {default_p} ₽ (базовый тариф), можно только повышать."
-    )
 
 
 @router.message(OwnerFSM.price_value)
@@ -267,17 +481,33 @@ async def owner_price_key(message: Message, state: FSMContext):
 async def owner_price_value(message: Message, state: FSMContext):
     data = await state.get_data()
     key = data.get("price_key")
-    try:
-        price = int(message.text.strip())
-    except ValueError:
-        await message.answer("❌ Введите число.")
+    if key not in TARIFF_KEYS:
+        await state.clear()
+        await send_owner_menu(message)
         return
+
+    raw = (message.text or "").strip()
+    label = OWNER_PRICE_SHORT.get(key, key)
+
+    if raw == "-":
+        ok, err = await sql.reset_price(key)
+        notice = f"✅ {label}: сброшено на базовую цену.\n\n" if ok else f"❌ {err}\n\n"
+        await _show_owner_prices(message, state, notice=notice)
+        return
+
+    try:
+        price = int(raw)
+    except ValueError:
+        await message.answer("❌ Введите целое число или «-» для сброса.")
+        return
+
     ok, err = await sql.set_price(key, price)
-    await state.clear()
-    await message.answer(
-        f"✅ Цена {key} = {price} ₽" if ok else f"❌ {err}",
-        reply_markup=keyboard_owner_main(),
-    )
+    if not ok:
+        await message.answer(f"❌ {err}")
+        return
+
+    notice = f"✅ {label}: {price} ₽\n\n"
+    await _show_owner_prices(message, state, notice=notice)
 
 
 @router.callback_query(F.data == "owner_trial")

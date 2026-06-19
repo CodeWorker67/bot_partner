@@ -62,6 +62,33 @@ def user_has_active_pro_subscription(user: Users) -> bool:
     )
 
 
+def parse_user_profile(raw: Optional[str]) -> Dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def user_last_visit(user: Users) -> datetime:
+    profile = parse_user_profile(user.field_str_2)
+    raw = profile.get("last_activity")
+    if raw:
+        try:
+            dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except (ValueError, TypeError):
+            pass
+    dt = user.create_user or datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 class PartnerSQL:
     def __init__(self):
         self.session_factory = AsyncSessionLocal
@@ -246,6 +273,7 @@ class PartnerSQL:
                 "channel_required": bool(row.channel_required),
                 "trial_days": row.trial_days or 3,
                 "prices_json": row.prices_json,
+                "partner_since": row.partner_since,
             }
 
     async def update_bot_settings(self, **kwargs) -> None:
@@ -264,14 +292,30 @@ class PartnerSQL:
             )
             await session.commit()
 
-    async def get_prices(self) -> Dict[str, int]:
+    async def _load_prices_json_raw(self) -> Dict[str, int]:
         settings = await self.get_bot_settings()
-        if settings and settings.get("prices_json"):
-            try:
-                return {**DEFAULT_PRICES, **json.loads(settings["prices_json"])}
-            except json.JSONDecodeError:
-                pass
-        return dict(DEFAULT_PRICES)
+        if not settings or not settings.get("prices_json"):
+            return {}
+        try:
+            data = json.loads(settings["prices_json"])
+            if not isinstance(data, dict):
+                return {}
+            return {
+                k: int(v)
+                for k, v in data.items()
+                if k in DEFAULT_PRICES and isinstance(v, (int, float, str))
+            }
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return {}
+
+    async def get_price_overrides(self) -> Dict[str, int]:
+        """Явные переопределения цен (отличаются от базовых)."""
+        raw = await self._load_prices_json_raw()
+        return {k: v for k, v in raw.items() if v != DEFAULT_PRICES[k]}
+
+    async def get_prices(self) -> Dict[str, int]:
+        overrides = await self.get_price_overrides()
+        return {**DEFAULT_PRICES, **overrides}
 
     async def set_price(self, key: str, price: int) -> Tuple[bool, str]:
         if key not in DEFAULT_PRICES:
@@ -279,9 +323,20 @@ class PartnerSQL:
         min_p = DEFAULT_PRICES[key]
         if price < min_p:
             return False, f"Минимальная цена: {min_p} ₽ (нельзя ниже базового тарифа)"
-        prices = await self.get_prices()
-        prices[key] = price
-        await self.update_bot_settings(prices_json=json.dumps(prices))
+        overrides = await self.get_price_overrides()
+        if price == min_p:
+            overrides.pop(key, None)
+        else:
+            overrides[key] = price
+        await self.update_bot_settings(prices_json=json.dumps(overrides))
+        return True, "OK"
+
+    async def reset_price(self, key: str) -> Tuple[bool, str]:
+        if key not in DEFAULT_PRICES:
+            return False, "Неизвестный тариф"
+        overrides = await self.get_price_overrides()
+        overrides.pop(key, None)
+        await self.update_bot_settings(prices_json=json.dumps(overrides))
         return True, "OK"
 
     async def set_trial_days(self, days: int) -> Tuple[bool, str]:
@@ -301,6 +356,58 @@ class PartnerSQL:
             )
             return list((await session.execute(stmt)).scalars().all())
 
+    async def sync_user_profile(
+        self,
+        user_id: int,
+        *,
+        username: Optional[str] = None,
+        full_name: Optional[str] = None,
+        language: Optional[str] = None,
+    ) -> None:
+        async with self.session_factory() as session:
+            stmt = select(Users).where(_user_filter(user_id))
+            user = (await session.execute(stmt)).scalar_one_or_none()
+            if not user:
+                return
+            profile = parse_user_profile(user.field_str_2)
+            if username is not None:
+                profile["username"] = username
+            if full_name is not None:
+                profile["full_name"] = full_name
+            if language is not None:
+                profile["language"] = language
+            profile["last_activity"] = datetime.now(timezone.utc).isoformat()
+            await session.execute(
+                update(Users).where(_user_filter(user_id)).values(
+                    field_str_2=json.dumps(profile, ensure_ascii=False)
+                )
+            )
+            await session.commit()
+
+    async def search_user_by_username(self, username: str) -> Optional[Users]:
+        needle = username.lstrip("@").lower()
+        if not needle:
+            return None
+        async with self.session_factory() as session:
+            stmt = select(Users).where(Users.bot_id == BOT_ID, Users.is_delete == False)
+            for user in (await session.execute(stmt)).scalars().all():
+                profile = parse_user_profile(user.field_str_2)
+                if (profile.get("username") or "").lower() == needle:
+                    return user
+        return None
+
+    async def count_user_transactions(self, user_id: int) -> int:
+        total = 0
+        async with self.session_factory() as session:
+            for model in (PaymentsFkSBP, PaymentsStars, PaymentsCryptobot):
+                stmt = select(func.count()).select_from(model).where(
+                    model.bot_id == BOT_ID,
+                    model.user_id == user_id,
+                    model.status.in_(("confirmed", "paid")),
+                )
+                total += (await session.execute(stmt)).scalar() or 0
+        return total
+
     async def search_user_by_id(self, tg_id: int) -> Optional[Users]:
         return await self.get_user_object_by_user_id(tg_id)
 
@@ -310,6 +417,31 @@ class PartnerSQL:
                 Users.bot_id == BOT_ID, Users.is_delete == False
             )
             return (await session.execute(stmt)).scalar() or 0
+
+    async def count_bot_visits_since(self, since: datetime) -> int:
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        else:
+            since = since.astimezone(timezone.utc)
+        async with self.session_factory() as session:
+            stmt = select(Users).where(Users.bot_id == BOT_ID, Users.is_delete == False)
+            users = (await session.execute(stmt)).scalars().all()
+        return sum(1 for user in users if user_last_visit(user) >= since)
+
+    async def touch_user_activity(self, user_id: int) -> None:
+        async with self.session_factory() as session:
+            stmt = select(Users).where(_user_filter(user_id))
+            user = (await session.execute(stmt)).scalar_one_or_none()
+            if not user:
+                return
+            profile = parse_user_profile(user.field_str_2)
+            profile["last_activity"] = datetime.now(timezone.utc).isoformat()
+            await session.execute(
+                update(Users).where(_user_filter(user_id)).values(
+                    field_str_2=json.dumps(profile, ensure_ascii=False)
+                )
+            )
+            await session.commit()
 
     async def count_active_subscriptions(self) -> int:
         async with self.session_factory() as session:

@@ -42,6 +42,7 @@ class PartnerBotSettings(Base):
     channel_required = Column(Boolean, default=False)
     trial_days = Column(Integer, default=DEFAULT_TRIAL_DAYS)
     prices_json = Column(String(4096), nullable=True)
+    partner_since = Column(DateTime, default=datetime.now)
 
 
 class Users(Base):
@@ -72,6 +73,7 @@ class Users(Base):
     subscribtion_10 = Column(String(255), nullable=True)
     field_bool_3 = Column(Boolean, default=False)
     field_str_1 = Column(String(4096), nullable=True)
+    field_str_2 = Column(String(4096), nullable=True)
 
 
 class Gifts(Base):
@@ -154,6 +156,16 @@ async def _migrate_schema():
         cols = {row[1] for row in result.fetchall()}
         if "field_str_1" not in cols:
             await conn.execute(text("ALTER TABLE users ADD COLUMN field_str_1 VARCHAR(4096)"))
+        if "field_str_2" not in cols:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN field_str_2 VARCHAR(4096)"))
+
+        result = await conn.execute(text("PRAGMA table_info(partner_bot_settings)"))
+        settings_cols = {row[1] for row in result.fetchall()}
+        if "partner_since" not in settings_cols:
+            await conn.execute(text("ALTER TABLE partner_bot_settings ADD COLUMN partner_since DATETIME"))
+            await conn.execute(
+                text("UPDATE partner_bot_settings SET partner_since = CURRENT_TIMESTAMP WHERE partner_since IS NULL")
+            )
 
 
 async def _ensure_bot_settings():

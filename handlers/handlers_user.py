@@ -46,6 +46,12 @@ async def _ensure_user(message: Message, ref: str = "") -> None:
             ref=ref,
             stamp=secrets.token_hex(4),
         )
+    await sql.sync_user_profile(
+        tg_id,
+        username=message.from_user.username,
+        full_name=message.from_user.full_name,
+        language=message.from_user.language_code,
+    )
 
 
 async def _send_main_menu(
@@ -87,6 +93,12 @@ async def process_start_command(message: Message):
         in_panel=False,
         ref=ref_login,
         stamp=secrets.token_hex(4),
+    )
+    await sql.sync_user_profile(
+        message.from_user.id,
+        username=message.from_user.username,
+        full_name=message.from_user.full_name,
+        language=message.from_user.language_code,
     )
     if is_new and ref_login:
         await sql.try_set_ref_from_invite(message.from_user.id, ref_login)

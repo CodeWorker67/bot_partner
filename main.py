@@ -10,6 +10,7 @@ from config import BOT_ID, OWNER_TG_ID, TG_TOKEN
 from config_bd.models import create_tables, engine
 from handlers import handlers_user, handlers_devices, handlers_owner, handlers_import
 from logging_config import logger
+from middleware.user_activity import UserActivityMiddleware
 from payments import pay_cryptobot, pay_freekassa, pay_stars
 from sheduler.backup_db import send_db_backup_cron
 from sheduler.check_connect import check_connect
@@ -32,6 +33,7 @@ async def main() -> None:
     await create_tables()
 
     dp = Dispatcher()
+    dp.update.middleware(UserActivityMiddleware())
     dp.include_router(handlers_owner.router)
     dp.include_router(handlers_import.router)
     dp.include_router(handlers_user.router)

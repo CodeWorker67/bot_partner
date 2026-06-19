@@ -1,16 +1,30 @@
 """Цена и описание тарифа, username в панели с bot_id."""
 from __future__ import annotations
 
-import json
 import re
 from typing import Dict, Tuple
 
-from config import BOT_ID, DEFAULT_PRICES, MIN_PRICES
+from config import BOT_ID, DEFAULT_PRICES
 
 _MONTHS_TO_DAYS = {1: 30, 3: 90, 6: 180, 12: 365}
 DEFAULT_DEVICE_SLOTS = 5
 
 # Описания тарифов (статичные)
+OWNER_PRICE_SHORT: Dict[str, str] = {
+    "m1_d3": "1 мес · 3 устр.",
+    "m3_d3": "3 мес · 3 устр.",
+    "m6_d3": "6 мес · 3 устр.",
+    "m12_d3": "12 мес · 3 устр.",
+    "m1_d5": "1 мес · 5 устр.",
+    "m3_d5": "3 мес · 5 устр.",
+    "m6_d5": "6 мес · 5 устр.",
+    "m12_d5": "12 мес · 5 устр.",
+    "m1_d10": "1 мес · 10 устр.",
+    "m3_d10": "3 мес · 10 устр.",
+    "m6_d10": "6 мес · 10 устр.",
+    "m12_d10": "12 мес · 10 устр.",
+}
+
 dct_desc: Dict[str, str] = {
     "m1_d3": "1 месяц · 3 устройства",
     "m3_d3": "3 месяца · 3 устройства",
@@ -59,13 +73,7 @@ def tariff_days_for_x3(duration_key_plain: str) -> int:
 
 
 async def get_prices(sql) -> Dict[str, int]:
-    settings = await sql.get_bot_settings()
-    if settings and settings.get("prices_json"):
-        try:
-            return {**DEFAULT_PRICES, **json.loads(settings["prices_json"])}
-        except json.JSONDecodeError:
-            pass
-    return dict(DEFAULT_PRICES)
+    return await sql.get_prices()
 
 
 def tariff_rub_and_desc(duration_key: str, prices: Dict[str, int] | None = None) -> Tuple[int, str]:

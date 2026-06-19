@@ -5,8 +5,8 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot_display import bot_display_name
-from config import BOT_URL, SUPPORT_URL
-from tariff_resolve import dct_desc
+from config import BOT_URL, SUPPORT_URL, TARIFF_KEYS
+from tariff_resolve import OWNER_PRICE_SHORT, dct_desc
 
 BTN_BACK = "🔙 Назад"
 REVIEWS_URL = "https://t.me/otzividlyasvoi"
@@ -695,6 +695,50 @@ def keyboard_payment_methods(tarif_key: str, amount: int, is_gift: bool = False)
 
 def keyboard_ref_dashboard():
     return create_kb(1, back_to_main=BTN_BACK)
+
+
+def keyboard_owner_prices(prices: dict, overrides: dict) -> InlineKeyboardMarkup:
+    rows = []
+    for key in TARIFF_KEYS:
+        price = prices.get(key, 0)
+        suffix = " база" if key not in overrides else ""
+        label = OWNER_PRICE_SHORT.get(key, key)
+        rows.append([
+            InlineKeyboardButton(
+                text=f"{label}: {price}₽{suffix}",
+                callback_data=f"owner_price_edit:{key}",
+            )
+        ])
+    rows.append([InlineKeyboardButton(text=BTN_BACK, callback_data="owner_panel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def keyboard_owner_users(
+    user_buttons: list[tuple[int, str]],
+    *,
+    page: int,
+    total_pages: int,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for user_id, label in user_buttons:
+        rows.append([
+            InlineKeyboardButton(
+                text=label,
+                callback_data=f"owner_user_view:{user_id}",
+            )
+        ])
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀️", callback_data=f"owner_users_page:{page - 1}"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton(text="▶️", callback_data=f"owner_users_page:{page + 1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([
+        InlineKeyboardButton(text="🔍 Поиск по ID / @username", callback_data="owner_users_search"),
+    ])
+    rows.append([InlineKeyboardButton(text=BTN_BACK, callback_data="owner_panel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def keyboard_owner_main():
