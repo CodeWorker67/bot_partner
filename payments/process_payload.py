@@ -53,7 +53,7 @@ async def _distribute_commissions(payer_uid: int, method: str, amount: int | flo
 
     owner_share = PARTNER_SHARE_REF if ref_id_str else PARTNER_SHARE_DEFAULT
     owner_commission = rub * owner_share // 100
-    if owner_commission > 0:
+    if owner_commission > 0 and payer_uid != OWNER_TG_ID:
         await sql.add_partner_balance(owner_commission)
         try:
             await bot.send_message(

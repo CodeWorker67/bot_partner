@@ -627,6 +627,8 @@ class PartnerSQL:
                 )
                 .values(status=status)
             )
+            await session.commit()
+
     async def get_latest_online(self) -> Optional[Online]:
         async with self.session_factory() as session:
             stmt = (
