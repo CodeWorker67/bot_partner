@@ -5,9 +5,10 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, Message, ChatMemberUpdated
 
 from bot import bot, sql, x3
-from channel_gate import require_channel_sub
+from channel_gate import needs_channel_block, require_channel_sub, send_channel_required, verify_channel_subscription
 from config import BOT_ID, BOT_URL, OWNER_TG_ID, REFERRAL_PROCENT, SUPPORT_URL
 from keyboard import (
+    channel_keyboard,
     keyboard_buy_tiers,
     keyboard_duration,
     keyboard_gift_duration,
@@ -47,6 +48,27 @@ async def _ensure_user(message: Message, ref: str = "") -> None:
         )
 
 
+async def _send_main_menu(
+    target: Message | CallbackQuery,
+    user_id: int,
+    *,
+    edit: bool = False,
+) -> None:
+    user = await sql.get_user_object_by_user_id(user_id)
+    welcome_only = not (user and user.in_panel)
+    text = lexicon["start_bonus"] if welcome_only else lexicon["start"]
+    kb = await _main_keyboard(user_id, welcome_only=welcome_only)
+    if isinstance(target, CallbackQuery):
+        if edit:
+            await target.message.edit_text(text, reply_markup=kb)
+        else:
+            await target.message.answer(text, reply_markup=kb)
+    elif edit:
+        await target.edit_text(text, reply_markup=kb)
+    else:
+        await target.answer(text, reply_markup=kb)
+
+
 @router.message(CommandStart())
 async def process_start_command(message: Message):
     ref_login = ""
@@ -69,11 +91,12 @@ async def process_start_command(message: Message):
     if is_new and ref_login:
         await sql.try_set_ref_from_invite(message.from_user.id, ref_login)
 
-    text = lexicon["start_bonus"] if is_new else lexicon["start"]
-    await message.answer(
-        text,
-        reply_markup=await _main_keyboard(message.from_user.id, welcome_only=is_new),
-    )
+    blocked, url = await needs_channel_block(message.from_user.id)
+    if blocked:
+        await send_channel_required(message, url or "")
+        return
+
+    await _send_main_menu(message, message.from_user.id)
 
 
 async def _activate_gift(message: Message, gift_id: str):
@@ -101,11 +124,33 @@ async def _activate_gift(message: Message, gift_id: str):
 
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery):
-    await callback.message.edit_text(
-        lexicon["start"],
-        reply_markup=await _main_keyboard(callback.from_user.id),
-    )
+    blocked, url = await needs_channel_block(callback.from_user.id)
+    if blocked:
+        await callback.message.edit_text(
+            lexicon["channel_required"],
+            reply_markup=channel_keyboard(url or ""),
+        )
+        await callback.answer()
+        return
+    await _send_main_menu(callback, callback.from_user.id, edit=True)
     await callback.answer()
+
+
+@router.callback_query(F.data == "channel_sub_check")
+async def channel_sub_check(callback: CallbackQuery):
+    settings = await sql.get_bot_settings()
+    if not settings or not settings.get("channel_required"):
+        await _send_main_menu(callback, callback.from_user.id, edit=True)
+        await callback.answer()
+        return
+
+    if await verify_channel_subscription(callback.from_user.id):
+        await sql.update_in_chanel(callback.from_user.id, True)
+        await _send_main_menu(callback, callback.from_user.id, edit=True)
+        await callback.answer()
+        return
+
+    await callback.answer(lexicon["channel_not_subscribed"], show_alert=True)
 
 
 @router.callback_query(F.data == "buy_vpn")

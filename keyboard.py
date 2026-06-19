@@ -618,7 +618,13 @@ def keyboard_partner_withdraw(support_url: str):
 def channel_keyboard(channel_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👉 Подписаться на канал", url=channel_url, style=STYLE_PRIMARY)],
-        [InlineKeyboardButton(text=BTN_BACK, callback_data="back_to_main")],
+        [
+            InlineKeyboardButton(
+                text="✅ Я подписался!",
+                callback_data="channel_sub_check",
+                style=STYLE_SUCCESS,
+            )
+        ],
     ])
 
 

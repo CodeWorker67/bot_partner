@@ -4,11 +4,13 @@ from typing import Callable
 
 from aiogram.types import CallbackQuery, Message
 
-from bot import sql
+from bot import bot, sql
 from keyboard import channel_keyboard
+from lexicon import lexicon
+from logging_config import logger
 
 
-async def _needs_channel_block(user_id: int) -> tuple[bool, str | None]:
+async def needs_channel_block(user_id: int) -> tuple[bool, str | None]:
     settings = await sql.get_bot_settings()
     if not settings or not settings.get("channel_required"):
         return False, None
@@ -19,11 +21,20 @@ async def _needs_channel_block(user_id: int) -> tuple[bool, str | None]:
     return True, url
 
 
+async def verify_channel_subscription(user_id: int) -> bool:
+    settings = await sql.get_bot_settings()
+    if not settings or not settings.get("channel_id"):
+        return True
+    try:
+        member = await bot.get_chat_member(settings["channel_id"], user_id)
+        return member.status in ("member", "administrator", "creator")
+    except Exception as e:
+        logger.warning(f"verify_channel_subscription {user_id}: {e}")
+        return False
+
+
 async def send_channel_required(target: Message | CallbackQuery, channel_url: str) -> None:
-    text = (
-        "📢 Для продолжения подпишитесь на канал.\n\n"
-        "После подписки вернитесь и повторите действие."
-    )
+    text = lexicon["channel_required"]
     kb = channel_keyboard(channel_url)
     if isinstance(target, CallbackQuery):
         await target.message.answer(text, reply_markup=kb)
@@ -36,7 +47,7 @@ def require_channel_sub(handler: Callable):
     @wraps(handler)
     async def wrapper(event, *args, **kwargs):
         user_id = event.from_user.id
-        blocked, url = await _needs_channel_block(user_id)
+        blocked, url = await needs_channel_block(user_id)
         if blocked:
             await send_channel_required(event, url or "")
             return
