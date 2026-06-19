@@ -18,6 +18,36 @@ from tariff_resolve import dct_desc
 router = Router()
 
 
+def _resolve_channel_input(raw: str) -> tuple[str, str] | None:
+    """@username или t.me/... → (аргумент get_chat, URL для пользователей)."""
+    raw = raw.strip()
+    if not raw:
+        return None
+
+    if raw.startswith("@"):
+        username = raw[1:].strip()
+        if not username:
+            return None
+        return f"@{username}", f"https://t.me/{username}"
+
+    lower = raw.lower()
+    if "t.me/" not in lower:
+        return None
+
+    path = raw[lower.index("t.me/") + len("t.me/"):].rstrip("/")
+    if not path:
+        return None
+
+    if path.startswith("+") or path.startswith("joinchat/"):
+        url = f"https://t.me/{path}"
+        return url, url
+
+    username = path.split("/")[0]
+    if not username:
+        return None
+    return f"@{username}", f"https://t.me/{username}"
+
+
 class OwnerFSM(StatesGroup):
     broadcast_text = State()
     channel_input = State()
@@ -113,6 +143,7 @@ async def owner_channel_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(OwnerFSM.channel_input)
     await callback.message.edit_text(
         "📢 Отправьте @username канала или ссылку t.me/...\n"
+        "Поддерживаются и приватные ссылки вида t.me/+...\n"
         "Бот должен быть администратором канала.",
         reply_markup=create_kb(1, owner_panel="❌ Отмена"),
     )
@@ -127,19 +158,21 @@ async def owner_channel_save(message: Message, state: FSMContext):
         await send_owner_menu(message)
         return
     raw = (message.text or "").strip()
-    channel_id = None
-    channel_url = raw
-    if raw.startswith("@"):
-        chat = await bot.get_chat(raw)
-        channel_id = chat.id
-        channel_url = f"https://t.me/{raw.lstrip('@')}"
-    elif "t.me/" in raw:
-        username = raw.rstrip("/").split("/")[-1]
-        chat = await bot.get_chat(f"@{username}")
-        channel_id = chat.id
-    else:
+    resolved = _resolve_channel_input(raw)
+    if not resolved:
         await message.answer("❌ Неверный формат. Укажите @channel или ссылку.")
         return
+
+    chat_lookup, channel_url = resolved
+    try:
+        chat = await bot.get_chat(chat_lookup)
+    except Exception as e:
+        logger.warning(f"owner_channel get_chat failed: {chat_lookup!r} — {e}")
+        await message.answer(
+            "❌ Не удалось получить канал. Проверьте ссылку и что бот добавлен в канал как администратор."
+        )
+        return
+    channel_id = chat.id
 
     me = await bot.get_me()
     member = await bot.get_chat_member(channel_id, me.id)
