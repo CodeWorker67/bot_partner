@@ -4,7 +4,7 @@ from typing import Optional
 
 from bot import bot, sql
 from config import CHECKER_ID
-from keyboard import create_kb, keyboard_push_buy_reviews, STYLE_PRIMARY, STYLE_SUCCESS
+from keyboard import create_kb, STYLE_PRIMARY, STYLE_SUCCESS
 from lexicon import lexicon
 from logging_config import logger
 from telegram_ids import is_telegram_chat_id
@@ -21,19 +21,19 @@ class PushStage:
     window_end: int
     lexicon_key: str
     with_video: bool = False
-    keyboard: str = 'buy_reviews'
+    keyboard: str = 'buy_free'
 
 
 NOT_SUB_STAGES = (
-    PushStage(30, 60, 'push_not_subscribed_30m', keyboard='buy_reviews'),
-    PushStage(180, 210, 'push_not_subscribed_3h', with_video=True, keyboard='buy_reviews'),
-    PushStage(1410, 1440, 'push_not_subscribed_day2_0h', keyboard='buy_reviews'),
-    PushStage(2130, 2160, 'push_not_subscribed_day2_12h', keyboard='buy_reviews'),
-    PushStage(2850, 2880, 'push_not_subscribed_day3_0h', keyboard='buy_reviews'),
-    PushStage(4290, 4320, 'push_not_subscribed_day4_0h', keyboard='buy_reviews'),
-    PushStage(5730, 5760, 'push_not_subscribed_day5_0h', keyboard='buy_reviews'),
-    PushStage(7170, 7200, 'push_not_subscribed_day6_0h', keyboard='buy_reviews'),
-    PushStage(8610, 8640, 'push_not_subscribed_day7_0h', keyboard='buy_reviews'),
+    PushStage(30, 60, 'push_not_subscribed_30m', keyboard='buy_free'),
+    PushStage(180, 210, 'push_not_subscribed_3h', with_video=True, keyboard='buy_free'),
+    PushStage(1410, 1440, 'push_not_subscribed_day2_0h', keyboard='buy_free'),
+    PushStage(2130, 2160, 'push_not_subscribed_day2_12h', keyboard='buy_free'),
+    PushStage(2850, 2880, 'push_not_subscribed_day3_0h', keyboard='buy_free'),
+    PushStage(4290, 4320, 'push_not_subscribed_day4_0h', keyboard='buy_free'),
+    PushStage(5730, 5760, 'push_not_subscribed_day5_0h', keyboard='buy_free'),
+    PushStage(7170, 7200, 'push_not_subscribed_day6_0h', keyboard='buy_free'),
+    PushStage(8610, 8640, 'push_not_subscribed_day7_0h', keyboard='buy_free'),
 )
 
 NOT_CONNECT_STAGES = (
@@ -51,8 +51,13 @@ def _find_stage(offset_minutes: int, stages: tuple[PushStage, ...]) -> Optional[
 
 
 def _keyboard_for(stage: PushStage):
-    if stage.keyboard == 'buy_reviews':
-        return keyboard_push_buy_reviews()
+    if stage.keyboard == 'buy_free':
+        return create_kb(
+            1,
+            styles={'buy_vpn': STYLE_PRIMARY, 'trial_vpn': STYLE_SUCCESS},
+            buy_vpn='💰 Купить подписку',
+            trial_vpn='✨ Попробовать бесплатно',
+        )
     if stage.keyboard == 'connect_mes':
         return create_kb(
             1,
@@ -60,14 +65,14 @@ def _keyboard_for(stage: PushStage):
                 'connect_vpn': STYLE_PRIMARY,
                 'video_faq': STYLE_PRIMARY,
             },
-            connect_vpn='🔗 Подключить ВПН',
+            connect_vpn='🔗 Подключить',
             video_faq='🎥 Видеоинструкция',
         )
     if stage.keyboard == 'connect_video':
         return create_kb(
             1,
             styles={'connect_vpn': STYLE_PRIMARY},
-            connect_vpn='🔗 Подключить ВПН',
+            connect_vpn='🔗 Подключить',
         )
     return None
 
