@@ -1,4 +1,6 @@
 """Создание VPN-бота через заявку в мастер-бот."""
+import asyncio
+
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -59,6 +61,12 @@ async def create_partner_bot_token(message: Message, state: FSMContext):
         await message.answer(f"❌ {e}")
         if "уже" in str(e).lower():
             await state.clear()
+        return
+    except asyncio.TimeoutError:
+        await message.answer(
+            "❌ Таймаут при отправке заявки. Мастер-бот недоступен с VPS партнёров — "
+            "проверьте MASTER_BOT_API_URL в .env."
+        )
         return
     except Exception as e:
         logger.exception("create partner bot application: {}", e)

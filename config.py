@@ -15,6 +15,8 @@ SOURCE_BOT_ID: int | None = int(_source_bot_id) if _source_bot_id and _source_bo
 
 MASTER_BOT_API_URL: str = (os.environ.get("MASTER_BOT_API_URL") or "https://bot.zoomersky.online").rstrip("/")
 MASTER_BOT_API_KEY: str | None = (os.environ.get("MASTER_BOT_API_KEY") or "").strip() or None
+MASTER_BOT_API_TIMEOUT: int = int(os.environ.get("MASTER_BOT_API_TIMEOUT", "45"))
+MASTER_BOT_API_CONNECT_TIMEOUT: int = int(os.environ.get("MASTER_BOT_API_CONNECT_TIMEOUT", "10"))
 
 _db_path = os.environ.get("DATABASE_PATH", "config_bd/partner.db")
 DATABASE_PATH: Path = Path(_db_path)
