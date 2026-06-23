@@ -9,8 +9,6 @@ from lexicon import lexicon
 from logging_config import logger
 from telegram_ids import is_telegram_chat_id
 
-VIDEO_FILE_ID = 'BAACAgQAAxkBAAEruMxqBamHrfafk-HiCQxgz0O7cKwgPQAC_SAAApwDMVCjetgWmRs7KDsE'
-
 NOT_SUB_CYCLE_MINUTES = 7 * 24 * 60
 NOT_CONNECT_CYCLE_MINUTES = 24 * 60
 
@@ -20,13 +18,12 @@ class PushStage:
     window_start: int
     window_end: int
     lexicon_key: str
-    with_video: bool = False
     keyboard: str = 'buy_free'
 
 
 NOT_SUB_STAGES = (
     PushStage(30, 60, 'push_not_subscribed_30m', keyboard='buy_free'),
-    PushStage(180, 210, 'push_not_subscribed_3h', with_video=True, keyboard='buy_free'),
+    PushStage(180, 210, 'push_not_subscribed_3h', keyboard='buy_free'),
     PushStage(1410, 1440, 'push_not_subscribed_day2_0h', keyboard='buy_free'),
     PushStage(2130, 2160, 'push_not_subscribed_day2_12h', keyboard='buy_free'),
     PushStage(2850, 2880, 'push_not_subscribed_day3_0h', keyboard='buy_free'),
@@ -37,9 +34,9 @@ NOT_SUB_STAGES = (
 )
 
 NOT_CONNECT_STAGES = (
-    PushStage(30, 60, 'push_not_connected_30m', keyboard='connect_mes'),
-    PushStage(180, 210, 'push_not_connected_3h', with_video=True, keyboard='connect_video'),
-    PushStage(1410, 1440, 'push_not_connected_24h', keyboard='connect_mes'),
+    PushStage(30, 60, 'push_not_connected_30m', keyboard='connect'),
+    PushStage(180, 210, 'push_not_connected_3h', keyboard='connect'),
+    PushStage(1410, 1440, 'push_not_connected_24h', keyboard='connect'),
 )
 
 
@@ -58,21 +55,11 @@ def _keyboard_for(stage: PushStage):
             buy_vpn='💰 Купить подписку',
             trial_vpn='✨ Попробовать бесплатно',
         )
-    if stage.keyboard == 'connect_mes':
-        return create_kb(
-            1,
-            styles={
-                'connect_vpn': STYLE_PRIMARY,
-                'video_faq': STYLE_PRIMARY,
-            },
-            connect_vpn='🔗 Подключить',
-            video_faq='🎥 Видеоинструкция',
-        )
-    if stage.keyboard == 'connect_video':
+    if stage.keyboard == 'connect':
         return create_kb(
             1,
             styles={'connect_vpn': STYLE_PRIMARY},
-            connect_vpn='🔗 Подключить',
+            connect_vpn='🔗 Подключить ВПН',
         )
     return None
 
@@ -80,19 +67,11 @@ def _keyboard_for(stage: PushStage):
 async def _send_push(user_id: int, stage: PushStage) -> None:
     message_text = lexicon[stage.lexicon_key]
     keyboard = _keyboard_for(stage)
-    if stage.with_video:
-        await bot.send_video(
-            chat_id=user_id,
-            video=VIDEO_FILE_ID,
-            caption=message_text,
-            reply_markup=keyboard,
-        )
-    else:
-        await bot.send_message(
-            chat_id=user_id,
-            text=message_text,
-            reply_markup=keyboard,
-        )
+    await bot.send_message(
+        chat_id=user_id,
+        text=message_text,
+        reply_markup=keyboard,
+    )
 
 
 async def send_push_cron(debug: bool = False):
