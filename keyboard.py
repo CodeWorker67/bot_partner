@@ -6,7 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot_display import bot_display_name
 from config import BOT_URL, SUPPORT_URL, TARIFF_KEYS
-from tariff_resolve import OWNER_PRICE_SHORT, dct_desc
+from tariff_resolve import OWNER_PRICE_SHORT, tariff_button_label
 
 BTN_BACK = "🔙 Назад"
 REVIEWS_URL = "https://t.me/otzividlyasvoi"
@@ -121,6 +121,13 @@ def keyboard_start_bonus(*, show_owner_panel: bool = False) -> InlineKeyboardMar
                 style=STYLE_SUCCESS,
             ),
         ],
+        [
+            InlineKeyboardButton(
+                text="🤖 Создать своего VPN-бота",
+                callback_data="create_partner_bot",
+                style=STYLE_SUCCESS,
+            ),
+        ],
     ]
     if show_owner_panel:
         rows.append(
@@ -205,13 +212,13 @@ def _styles_buy_duration(devices: int) -> dict[str, str]:
     return st
 
 
-def keyboard_buy_duration(devices: int) -> InlineKeyboardMarkup:
+def keyboard_buy_duration(devices: int, prices: dict | None = None) -> InlineKeyboardMarkup:
     """Срок подписки после выбора числа устройств (callback вида r_m1_d3)."""
     kwargs: dict[str, str] = {}
     for months in (1, 3, 6, 12):
         ck = f"r_m{months}_d{devices}"
         dk = f"m{months}_d{devices}"
-        kwargs[ck] = dct_desc[dk]
+        kwargs[ck] = tariff_button_label(dk, prices)
     kwargs["back_buy_tier"] = BTN_BACK
     return create_kb(1, styles=_styles_buy_duration(devices), **kwargs)
 
@@ -239,12 +246,12 @@ def _styles_gift_duration(devices: int) -> dict[str, str]:
     return st
 
 
-def keyboard_gift_duration(devices: int) -> InlineKeyboardMarkup:
+def keyboard_gift_duration(devices: int, prices: dict | None = None) -> InlineKeyboardMarkup:
     kwargs: dict[str, str] = {}
     for months in (1, 3, 6, 12):
         ck = f"gift_r_m{months}_d{devices}"
         dk = f"m{months}_d{devices}"
-        kwargs[ck] = dct_desc[dk]
+        kwargs[ck] = tariff_button_label(dk, prices)
     kwargs["gift_back_tier"] = BTN_BACK
     return create_kb(1, styles=_styles_gift_duration(devices), **kwargs)
 
@@ -652,7 +659,8 @@ def keyboard_main(
         [InlineKeyboardButton(text="🔗 Подключить ВПН", callback_data="connect_vpn", style=STYLE_PRIMARY)],
     ])
     rows.extend([
-        [InlineKeyboardButton(text="💸 Зарабатывай с нами", callback_data="ref_program", style=STYLE_SUCCESS)],
+        [InlineKeyboardButton(text="💸 Зарабатывай с нами", callback_data="partner_earn", style=STYLE_SUCCESS)],
+        [InlineKeyboardButton(text="🤖 Создать своего VPN-бота", callback_data="create_partner_bot", style=STYLE_SUCCESS)],
         [InlineKeyboardButton(text="🎁 Подарить подписку", callback_data="buy_gift", style=STYLE_SUCCESS)],
     ])
     if show_owner_panel:
@@ -666,8 +674,8 @@ def keyboard_buy_tiers():
     return keyboard_buy_device_tier()
 
 
-def keyboard_duration(device: int, prefix: str = "r"):
-    return keyboard_buy_duration(device) if prefix == "r" else keyboard_buy_duration(device)
+def keyboard_duration(device: int, prefix: str = "r", prices: dict | None = None):
+    return keyboard_buy_duration(device, prices)
 
 
 def keyboard_gift_tiers():

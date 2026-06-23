@@ -543,11 +543,13 @@ async def owner_trial_save(message: Message, state: FSMContext):
 @_owner_only
 async def owner_balance(callback: CallbackQuery):
     settings = await sql.get_bot_settings()
-    balance = settings.get("partner_balance", 0) if settings else 0
+    total = settings.get("partner_balance", 0) if settings else 0
+    own = settings.get("balance_own_bot", 0) if settings else 0
+    child = settings.get("balance_child_bots", 0) if settings else 0
     paid = settings.get("partner_pay", 0) if settings else 0
-    text = lexicon["owner_balance"].format(balance, paid, PARTNER_MIN_WITHDRAW)
-    if balance >= PARTNER_MIN_WITHDRAW:
-        text += "\n\n" + lexicon["owner_withdraw_info"].format(balance, PARTNER_SUPPORT_URL)
+    text = lexicon["owner_balance"].format(total, own, child, paid, PARTNER_MIN_WITHDRAW)
+    if total >= PARTNER_MIN_WITHDRAW:
+        text += "\n\n" + lexicon["owner_withdraw_info"].format(total, PARTNER_SUPPORT_URL)
     await callback.message.edit_text(
         text,
         reply_markup=create_kb(1, owner_panel=BTN_BACK),

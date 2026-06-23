@@ -8,7 +8,7 @@ from bot import bot
 from bot_display import init_bot_display_name
 from config import BOT_ID, OWNER_TG_ID, TG_TOKEN
 from config_bd.models import create_tables, engine
-from handlers import handlers_user, handlers_devices, handlers_owner, handlers_import
+from handlers import handlers_user, handlers_devices, handlers_owner, handlers_import, handlers_partner_admin, handlers_create_partner_bot
 from logging_config import logger
 from middleware.user_activity import UserActivityMiddleware
 from payments import pay_cryptobot, pay_freekassa, pay_stars
@@ -35,6 +35,8 @@ async def main() -> None:
     dp = Dispatcher()
     dp.update.middleware(UserActivityMiddleware())
     dp.include_router(handlers_owner.router)
+    dp.include_router(handlers_create_partner_bot.router)
+    dp.include_router(handlers_partner_admin.router)
     dp.include_router(handlers_user.router)
     dp.include_router(handlers_import.router)
     dp.include_router(handlers_devices.router)

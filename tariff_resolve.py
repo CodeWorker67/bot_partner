@@ -9,6 +9,12 @@ from config import BOT_ID, DEFAULT_PRICES
 _MONTHS_TO_DAYS = {1: 30, 3: 90, 6: 180, 12: 365}
 DEFAULT_DEVICE_SLOTS = 5
 
+_TIER_BUTTON: Dict[int, Tuple[str, str]] = {
+    3: ("🔹", "3️⃣ устройства"),
+    5: ("🔸", "5️⃣ устройств"),
+    10: ("🏆", "🔟 устройств"),
+}
+
 # Описания тарифов (статичные)
 OWNER_PRICE_SHORT: Dict[str, str] = {
     "m1_d3": "1 мес · 3 устр.",
@@ -79,3 +85,41 @@ async def get_prices(sql) -> Dict[str, int]:
 def tariff_rub_and_desc(duration_key: str, prices: Dict[str, int] | None = None) -> Tuple[int, str]:
     p = prices or DEFAULT_PRICES
     return p.get(duration_key, DEFAULT_PRICES.get(duration_key, 0)), dct_desc.get(duration_key, duration_key)
+
+
+def tariff_savings_pct(tariff_key: str, prices: Dict[str, int] | None = None) -> int | None:
+    """Выгода % относительно помесячной оплаты по тому же числу устройств (целые проценты)."""
+    m = re.fullmatch(r"m(\d+)_d(\d+)", tariff_key)
+    if not m:
+        return None
+    months = int(m.group(1))
+    if months <= 1:
+        return None
+    devices = int(m.group(2))
+    p = prices or DEFAULT_PRICES
+    base_monthly = p.get(f"m1_d{devices}", DEFAULT_PRICES.get(f"m1_d{devices}", 0))
+    if base_monthly <= 0:
+        return None
+    price = p.get(tariff_key, DEFAULT_PRICES.get(tariff_key, 0))
+    full_price = base_monthly * months
+    if full_price <= 0 or price >= full_price:
+        return None
+    pct = round((1 - price / full_price) * 100)
+    return pct if pct > 0 else None
+
+
+def tariff_button_label(tariff_key: str, prices: Dict[str, int] | None = None) -> str:
+    """Текст кнопки тарифа: срок, устройства, цена и выгода (если есть)."""
+    m = re.fullmatch(r"m(\d+)_d(\d+)", tariff_key)
+    if not m:
+        return tariff_key
+    months = int(m.group(1))
+    devices = int(m.group(2))
+    p = prices or DEFAULT_PRICES
+    price = p.get(tariff_key, DEFAULT_PRICES.get(tariff_key, 0))
+    emoji, devices_text = _TIER_BUTTON.get(devices, ("🔹", f"{devices} устройств"))
+    label = f"{emoji} {months} мес - {devices_text} - {price} ₽"
+    savings = tariff_savings_pct(tariff_key, p)
+    if savings:
+        label += f" (выгода -{savings}%)"
+    return label

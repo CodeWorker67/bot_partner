@@ -4,11 +4,14 @@ from decimal import Decimal, ROUND_HALF_UP
 from bot import bot, sql, x3
 from config import (
     BOT_ID,
+    DEPLOYED_BOT_PROCENT,
     LEAD_TRACKER_STAR_RUB_PER_STAR,
     OWNER_TG_ID,
+    PARTNER_PROCENT,
     PARTNER_SHARE_DEFAULT,
     PARTNER_SHARE_REF,
     REFERRAL_PROCENT,
+    SOURCE_BOT_ID,
 )
 from keyboard import BTN_BACK, create_kb, keyboard_sub_after_buy
 from lead_tracker import post_payment_success
@@ -23,6 +26,40 @@ def _payment_rub(method: str, amount: int | float) -> int:
         rate = Decimal(str(LEAD_TRACKER_STAR_RUB_PER_STAR))
         return int((stars * rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
     return int(Decimal(str(amount)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+async def _credit_partner_commission(payer_uid: int, method: str, amount: int | float) -> None:
+    user_row = await sql.get_user(payer_uid)
+    if not user_row or len(user_row) <= 25:
+        return
+    partner_str = user_row[25]
+    if not partner_str:
+        return
+    try:
+        partner_id = int(partner_str)
+    except ValueError:
+        return
+    if partner_id <= 0 or partner_id == payer_uid:
+        return
+
+    rub = _payment_rub(method, amount)
+    commission = rub * PARTNER_PROCENT // 100
+    if commission <= 0:
+        return
+
+    credited = await sql.add_user_partner_balance(partner_id, commission)
+    if not credited:
+        logger.warning("Партнёр {} не найден, начисление {} ₽ пропущено", partner_id, commission)
+        return
+
+    try:
+        await bot.send_message(
+            partner_id,
+            lexicon["partner_success"].format(commission),
+            reply_markup=create_kb(1, back_to_main=BTN_BACK),
+        )
+    except Exception as e:
+        logger.error("partner notify {}: {}", partner_id, e)
 
 
 async def _distribute_commissions(payer_uid: int, method: str, amount: int | float) -> None:
@@ -63,6 +100,17 @@ async def _distribute_commissions(payer_uid: int, method: str, amount: int | flo
         except Exception as e:
             logger.error("owner notify: {}", e)
 
+    if SOURCE_BOT_ID and SOURCE_BOT_ID != BOT_ID:
+        parent_commission = rub * DEPLOYED_BOT_PROCENT // 100
+        if parent_commission > 0:
+            await sql.add_child_bot_balance(SOURCE_BOT_ID, parent_commission)
+            logger.info(
+                "child bot commission: {} ₽ to source bot #{} from bot #{}",
+                parent_commission,
+                SOURCE_BOT_ID,
+                BOT_ID,
+            )
+
 
 async def process_confirmed_payment(payload: str) -> None:
     try:
@@ -91,6 +139,7 @@ async def process_confirmed_payment(payload: str) -> None:
             gift_id = await sql.create_gift(user_id, duration, device_slots)
             await post_payment_success(user_id, method, amount)
             await _distribute_commissions(user_id, method, amount)
+            await _credit_partner_commission(user_id, method, amount)
             gift_message = lexicon["payment_gift"].format(duration, "", gift_id)
             try:
                 await bot.send_message(user_id, gift_message, disable_web_page_preview=True)
@@ -132,6 +181,7 @@ async def process_confirmed_payment(payload: str) -> None:
         await sql.update_reserve_field(user_id)
         await post_payment_success(user_id, method, amount)
         await _distribute_commissions(user_id, method, amount)
+        await _credit_partner_commission(user_id, method, amount)
 
         sub_link = result_active.get("url", "-")
         try:

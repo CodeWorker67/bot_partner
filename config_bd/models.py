@@ -36,6 +36,8 @@ class PartnerBotSettings(Base):
     bot_id = Column(Integer, primary_key=True)
     owner_tg_id = Column(BigInteger, nullable=False)
     partner_balance = Column(Integer, default=0)
+    balance_own_bot = Column(Integer, default=0)
+    balance_child_bots = Column(Integer, default=0)
     partner_pay = Column(Integer, default=0)
     channel_id = Column(BigInteger, nullable=True)
     channel_url = Column(String(512), nullable=True)
@@ -74,6 +76,10 @@ class Users(Base):
     field_bool_3 = Column(Boolean, default=False)
     field_str_1 = Column(String(4096), nullable=True)
     field_str_2 = Column(String(4096), nullable=True)
+    partner = Column(String(100), nullable=True)
+    partner_balance = Column(Integer, default=0)
+    partner_pay = Column(Integer, default=0)
+    partner_flag = Column(Boolean, default=False)
 
 
 class Gifts(Base):
@@ -158,6 +164,14 @@ async def _migrate_schema():
             await conn.execute(text("ALTER TABLE users ADD COLUMN field_str_1 VARCHAR(4096)"))
         if "field_str_2" not in cols:
             await conn.execute(text("ALTER TABLE users ADD COLUMN field_str_2 VARCHAR(4096)"))
+        for name, col_type in (
+            ("partner", "VARCHAR(100)"),
+            ("partner_balance", "INTEGER DEFAULT 0"),
+            ("partner_pay", "INTEGER DEFAULT 0"),
+            ("partner_flag", "BOOLEAN DEFAULT FALSE"),
+        ):
+            if name not in cols:
+                await conn.execute(text(f"ALTER TABLE users ADD COLUMN {name} {col_type}"))
 
         result = await conn.execute(text("PRAGMA table_info(partner_bot_settings)"))
         settings_cols = {row[1] for row in result.fetchall()}
@@ -166,6 +180,16 @@ async def _migrate_schema():
             await conn.execute(
                 text("UPDATE partner_bot_settings SET partner_since = CURRENT_TIMESTAMP WHERE partner_since IS NULL")
             )
+        if "balance_own_bot" not in settings_cols:
+            await conn.execute(text("ALTER TABLE partner_bot_settings ADD COLUMN balance_own_bot INTEGER DEFAULT 0"))
+            await conn.execute(
+                text(
+                    "UPDATE partner_bot_settings SET balance_own_bot = COALESCE(partner_balance, 0) "
+                    "WHERE balance_own_bot IS NULL OR balance_own_bot = 0"
+                )
+            )
+        if "balance_child_bots" not in settings_cols:
+            await conn.execute(text("ALTER TABLE partner_bot_settings ADD COLUMN balance_child_bots INTEGER DEFAULT 0"))
 
 
 async def _ensure_bot_settings():

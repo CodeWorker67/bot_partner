@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery, Message, ChatMemberUpdated
 
 from bot import bot, sql, x3
 from channel_gate import needs_channel_block, require_channel_sub, send_channel_required, verify_channel_subscription
-from config import BOT_ID, BOT_URL, OWNER_TG_ID, REFERRAL_PROCENT, SUPPORT_URL
+from config import BOT_ID, BOT_URL, OWNER_TG_ID, PARTNER_MIN, PARTNER_PROCENT, PARTNER_SUPPORT_URL, REFERRAL_PROCENT, SUPPORT_URL
 from keyboard import (
     channel_keyboard,
     keyboard_buy_tiers,
@@ -14,6 +14,9 @@ from keyboard import (
     keyboard_gift_duration,
     keyboard_gift_tiers,
     keyboard_main,
+    keyboard_partner_dashboard,
+    keyboard_partner_intro,
+    keyboard_partner_withdraw,
     keyboard_payment_methods,
     keyboard_ref_dashboard,
     keyboard_sub_after_buy,
@@ -78,8 +81,13 @@ async def _send_main_menu(
 @router.message(CommandStart())
 async def process_start_command(message: Message):
     ref_login = ""
+    partner_login = ""
     start_arg = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else ""
-    if start_arg.startswith("ref"):
+    if start_arg.startswith("partner_"):
+        raw_partner = start_arg.replace("partner_", "", 1)
+        if raw_partner.isdigit() and raw_partner != str(message.from_user.id):
+            partner_login = raw_partner
+    elif start_arg.startswith("ref"):
         raw = start_arg.replace("ref", "", 1)
         if raw.isdigit() and raw != str(message.from_user.id):
             ref_login = raw
@@ -92,6 +100,7 @@ async def process_start_command(message: Message):
         message.from_user.id,
         in_panel=False,
         ref=ref_login,
+        partner=partner_login,
         stamp=secrets.token_hex(4),
     )
     await sql.sync_user_profile(
@@ -177,9 +186,10 @@ async def buy_vpn_cb(callback: CallbackQuery):
 async def buy_tier_chosen(callback: CallbackQuery):
     tier = callback.data.replace("buy_tier_", "")
     device = int(tier)
+    prices = await get_prices(sql)
     await callback.message.edit_text(
         lexicon["choose_tariff"],
-        reply_markup=keyboard_duration(device, prefix="r"),
+        reply_markup=keyboard_duration(device, prefix="r", prices=prices),
     )
     await callback.answer()
 
@@ -244,14 +254,90 @@ async def connect_vpn_cb(callback: CallbackQuery):
 async def ref_program_cb(callback: CallbackQuery):
     tg_id = callback.from_user.id
     count = await sql.select_ref_count(tg_id)
-    user = await sql.get_user(tg_id)
-    balance = user[29] if user and len(user) > 29 else 0
+    user = await sql.get_user_object_by_user_id(tg_id)
+    balance = (user.ref_balance or 0) if user else 0
     link = f"{BOT_URL}?start=ref{tg_id}"
     await callback.message.edit_text(
         lexicon["ref_info"].format(count, tg_id, REFERRAL_PROCENT, balance, link),
         reply_markup=keyboard_ref_dashboard(),
     )
     await callback.answer()
+
+
+async def _send_partner_dashboard(callback: CallbackQuery) -> None:
+    tg_id = callback.from_user.id
+    user = await sql.get_user_object_by_user_id(tg_id)
+    referrals = await sql.select_partner_count(tg_id)
+    payments_sum = await sql.select_partner_referrals_payments_sum(tg_id)
+    balance = (user.partner_balance or 0) if user else 0
+    paid_out = (user.partner_pay or 0) if user else 0
+    total_earned = balance + paid_out
+    link = f"{BOT_URL}?start=partner_{tg_id}"
+    await callback.message.edit_text(
+        lexicon["partner_dashboard"].format(
+            link=link,
+            procent=PARTNER_PROCENT,
+            referrals=referrals,
+            payments_sum=payments_sum,
+            total_earned=total_earned,
+            paid_out=paid_out,
+            balance=balance,
+        ),
+        parse_mode="HTML",
+        reply_markup=keyboard_partner_dashboard(),
+        disable_web_page_preview=True,
+    )
+
+
+@router.callback_query(F.data == "partner_earn")
+async def partner_program(callback: CallbackQuery):
+    await callback.answer()
+    user = await sql.get_user_object_by_user_id(callback.from_user.id)
+    if user and user.partner_flag:
+        await _send_partner_dashboard(callback)
+    else:
+        await callback.message.edit_text(
+            lexicon["partner_intro"].format(
+                procent=PARTNER_PROCENT,
+                min_sum=PARTNER_MIN,
+            ),
+            parse_mode="HTML",
+            reply_markup=keyboard_partner_intro(),
+        )
+
+
+@router.callback_query(F.data == "partner_create_link")
+async def partner_create_link(callback: CallbackQuery):
+    await callback.answer()
+    await sql.update_partner_flag(callback.from_user.id, True)
+    await _send_partner_dashboard(callback)
+
+
+@router.callback_query(F.data == "partner_withdraw")
+async def partner_withdraw(callback: CallbackQuery):
+    user = await sql.get_user_object_by_user_id(callback.from_user.id)
+    if user is None:
+        await callback.answer()
+        return
+
+    balance = user.partner_balance or 0
+    if balance < PARTNER_MIN:
+        await callback.answer(
+            lexicon["partner_withdraw_alert"].format(min_sum=PARTNER_MIN),
+            show_alert=True,
+        )
+        return
+
+    await callback.answer()
+    support_url = PARTNER_SUPPORT_URL or "https://t.me/"
+    await callback.message.edit_text(
+        lexicon["partner_withdraw_info"].format(
+            balance=balance,
+            min_sum=PARTNER_MIN,
+        ),
+        parse_mode="HTML",
+        reply_markup=keyboard_partner_withdraw(support_url),
+    )
 
 
 @router.callback_query(F.data == "buy_gift")
@@ -264,9 +350,10 @@ async def gift_start(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("gift_tier_"))
 async def gift_tier_chosen(callback: CallbackQuery):
     device = int(callback.data.replace("gift_tier_", ""))
+    prices = await get_prices(sql)
     await callback.message.edit_text(
         lexicon["choose_tariff"],
-        reply_markup=keyboard_gift_duration(device),
+        reply_markup=keyboard_gift_duration(device, prices=prices),
     )
     await callback.answer()
 

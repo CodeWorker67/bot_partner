@@ -39,7 +39,8 @@ def _user_tuple(user: Users) -> Tuple:
         None, None,
         None, None, None,
         None, None, user.field_bool_3,
-        None, user.ref_balance, None, None,
+        user.partner, user.partner_balance, user.partner_pay, user.partner_flag,
+        user.ref_balance, None, None,
         user.subscription_3_end_date, user.subscription_10_end_date,
     )
 
@@ -111,6 +112,7 @@ class PartnerSQL:
         in_panel: bool = False,
         is_connect: bool = False,
         ref: str = "",
+        partner: str = "",
         is_delete: bool = False,
         in_chanel: bool = False,
         stamp: str = "",
@@ -120,6 +122,7 @@ class PartnerSQL:
                 user_id=user_id,
                 bot_id=BOT_ID,
                 ref=ref or None,
+                partner=partner or None,
                 is_delete=is_delete,
                 in_panel=in_panel,
                 is_connect=is_connect,
@@ -219,6 +222,72 @@ class PartnerSQL:
             await session.commit()
             return (result.rowcount or 0) > 0
 
+    async def select_partner_count(self, partner_id: int) -> int:
+        async with self.session_factory() as session:
+            stmt = select(func.count()).select_from(Users).where(
+                Users.bot_id == BOT_ID, Users.partner == str(partner_id)
+            )
+            return (await session.execute(stmt)).scalar() or 0
+
+    async def select_partner_referrals_payments_sum(self, partner_id: int) -> int:
+        async with self.session_factory() as session:
+            stmt = select(Users.user_id).where(
+                Users.bot_id == BOT_ID, Users.partner == str(partner_id)
+            )
+            user_ids = [row[0] for row in (await session.execute(stmt)).all()]
+            if not user_ids:
+                return 0
+
+            total = 0
+            chunk_size = 400
+            for i in range(0, len(user_ids), chunk_size):
+                chunk = user_ids[i : i + chunk_size]
+                for model in (PaymentsFkSBP, PaymentsStars, PaymentsCryptobot):
+                    stmt_sum = select(func.coalesce(func.sum(model.amount), 0)).where(
+                        model.bot_id == BOT_ID,
+                        model.user_id.in_(chunk),
+                        model.status.in_(("confirmed", "paid")),
+                    )
+                    val = (await session.execute(stmt_sum)).scalar() or 0
+                    total += int(val)
+            return total
+
+    async def update_partner_flag(self, user_id: int, flag: bool = True) -> None:
+        async with self.session_factory() as session:
+            await session.execute(
+                update(Users).where(_user_filter(user_id)).values(partner_flag=flag)
+            )
+            await session.commit()
+
+    async def add_user_partner_balance(self, partner_user_id: int, amount: int) -> bool:
+        if amount <= 0:
+            return False
+        async with self.session_factory() as session:
+            stmt = (
+                update(Users)
+                .where(_user_filter(partner_user_id))
+                .values(partner_balance=func.coalesce(Users.partner_balance, 0) + amount)
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return (result.rowcount or 0) > 0
+
+    async def partner_record_payout(self, partner_user_id: int, amount: int) -> Tuple[bool, str]:
+        if amount <= 0:
+            return False, "Сумма должна быть больше 0"
+        async with self.session_factory() as session:
+            stmt = select(Users).where(_user_filter(partner_user_id))
+            user = (await session.execute(stmt)).scalar_one_or_none()
+            if user is None:
+                return False, "Пользователь не найден"
+            balance = user.partner_balance or 0
+            if balance < amount:
+                return False, f"Недостаточно на балансе: {balance} ₽, запрошено {amount} ₽"
+            user.partner_balance = balance - amount
+            user.partner_pay = (user.partner_pay or 0) + amount
+            await session.commit()
+            return True, ""
+
     async def select_ref_count(self, ref_id: int) -> int:
         async with self.session_factory() as session:
             stmt = select(func.count()).select_from(Users).where(
@@ -267,6 +336,8 @@ class PartnerSQL:
                 "bot_id": row.bot_id,
                 "owner_tg_id": row.owner_tg_id,
                 "partner_balance": row.partner_balance or 0,
+                "balance_own_bot": row.balance_own_bot or 0,
+                "balance_child_bots": row.balance_child_bots or 0,
                 "partner_pay": row.partner_pay or 0,
                 "channel_id": row.channel_id,
                 "channel_url": row.channel_url,
@@ -284,11 +355,30 @@ class PartnerSQL:
             await session.commit()
 
     async def add_partner_balance(self, amount: int) -> None:
+        """Начисление с платежей в этом боте (50% / 20%)."""
         async with self.session_factory() as session:
             await session.execute(
                 update(PartnerBotSettings)
                 .where(PartnerBotSettings.bot_id == BOT_ID)
-                .values(partner_balance=func.coalesce(PartnerBotSettings.partner_balance, 0) + amount)
+                .values(
+                    balance_own_bot=func.coalesce(PartnerBotSettings.balance_own_bot, 0) + amount,
+                    partner_balance=func.coalesce(PartnerBotSettings.partner_balance, 0) + amount,
+                )
+            )
+            await session.commit()
+
+    async def add_child_bot_balance(self, target_bot_id: int, amount: int) -> None:
+        """Начисление 10% родительскому боту за платежи в дочернем боте."""
+        if amount <= 0 or target_bot_id <= 0:
+            return
+        async with self.session_factory() as session:
+            await session.execute(
+                update(PartnerBotSettings)
+                .where(PartnerBotSettings.bot_id == target_bot_id)
+                .values(
+                    balance_child_bots=func.coalesce(PartnerBotSettings.balance_child_bots, 0) + amount,
+                    partner_balance=func.coalesce(PartnerBotSettings.partner_balance, 0) + amount,
+                )
             )
             await session.commit()
 

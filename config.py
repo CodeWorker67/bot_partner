@@ -10,6 +10,11 @@ TG_TOKEN: str = os.environ.get("TG_TOKEN", "")
 BOT_ID: int = int(os.environ.get("BOT_ID", "0"))
 OWNER_TG_ID: int = int(os.environ.get("OWNER_TG_ID", "0"))
 BOT_USERNAME: str = (os.environ.get("BOT_USERNAME") or "").lstrip("@")
+_source_bot_id = os.environ.get("SOURCE_BOT_ID")
+SOURCE_BOT_ID: int | None = int(_source_bot_id) if _source_bot_id and _source_bot_id.strip() else None
+
+MASTER_BOT_API_URL: str = (os.environ.get("MASTER_BOT_API_URL") or "https://bot.zoomersky.online").rstrip("/")
+MASTER_BOT_API_KEY: str | None = (os.environ.get("MASTER_BOT_API_KEY") or "").strip() or None
 
 _db_path = os.environ.get("DATABASE_PATH", "config_bd/partner.db")
 DATABASE_PATH: Path = Path(_db_path)
@@ -36,7 +41,10 @@ CRYPTOBOT_API_TOKEN = os.environ.get("CRYPTOBOT_API_TOKEN")
 REFERRAL_PROCENT: int = int(os.environ.get("REFERRAL_PROCENT", "30"))
 PARTNER_SHARE_REF: int = int(os.environ.get("PARTNER_SHARE_REF", "20"))
 PARTNER_SHARE_DEFAULT: int = int(os.environ.get("PARTNER_SHARE_DEFAULT", "50"))
+DEPLOYED_BOT_PROCENT: int = int(os.environ.get("DEPLOYED_BOT_PROCENT", "10"))
 PARTNER_MIN_WITHDRAW: int = int(os.environ.get("PARTNER_MIN_WITHDRAW", "3000"))
+PARTNER_PROCENT: int = int(os.environ.get("PARTNER_PROCENT", "30"))
+PARTNER_MIN: int = int(os.environ.get("PARTNER_MIN", "500"))
 PARTNER_SUPPORT_URL: str = os.environ.get("PARTNER_SUPPORT_URL") or SUPPORT_URL
 
 DEFAULT_TRIAL_DAYS: int = int(os.environ.get("DEFAULT_TRIAL_DAYS", "3"))
