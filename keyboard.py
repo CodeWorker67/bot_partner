@@ -600,16 +600,13 @@ def keyboard_partner_intro():
     )
 
 
-def keyboard_partner_dashboard():
-    return create_kb(
-        1,
-        styles={
-            "partner_withdraw": STYLE_SUCCESS,
-            "back_to_main": STYLE_PRIMARY,
-        },
-        partner_withdraw='💰 Создать заявку на вывод',
-        back_to_main=BTN_BACK,
-    )
+def keyboard_partner_dashboard(*, show_withdraw: bool = False):
+    kwargs = {"back_to_main": BTN_BACK}
+    styles = {"back_to_main": STYLE_PRIMARY}
+    if show_withdraw:
+        kwargs["partner_withdraw"] = "💰 Создать заявку на вывод"
+        styles["partner_withdraw"] = STYLE_SUCCESS
+    return create_kb(1, styles=styles, **kwargs)
 
 
 def keyboard_partner_withdraw(support_url: str):
@@ -779,3 +776,12 @@ def keyboard_owner_main():
         owner_balance="💳 Баланс и вывод",
         back_to_main=BTN_BACK,
     )
+
+
+def keyboard_owner_balance(*, show_withdraw: bool = False):
+    kwargs = {"owner_panel": BTN_BACK}
+    styles = {}
+    if show_withdraw:
+        kwargs["owner_withdraw"] = "💰 Создать заявку на вывод"
+        styles["owner_withdraw"] = STYLE_SUCCESS
+    return create_kb(1, styles=styles, **kwargs)

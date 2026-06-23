@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery, Message, ChatMemberUpdated
 
 from bot import bot, sql, x3
 from channel_gate import needs_channel_block, require_channel_sub, send_channel_required, verify_channel_subscription
-from config import BOT_ID, BOT_URL, OWNER_TG_ID, PARTNER_MIN, PARTNER_PROCENT, PARTNER_SUPPORT_URL, REFERRAL_PROCENT, SUPPORT_URL
+from config import BOT_ID, BOT_URL, OWNER_TG_ID, PARTNER_MIN_WITHDRAW, PARTNER_PROCENT, PARTNER_SUPPORT_URL, REFERRAL_PROCENT, SUPPORT_URL
 from keyboard import (
     channel_keyboard,
     keyboard_buy_tiers,
@@ -272,6 +272,7 @@ async def _send_partner_dashboard(callback: CallbackQuery) -> None:
     balance = (user.partner_balance or 0) if user else 0
     paid_out = (user.partner_pay or 0) if user else 0
     total_earned = balance + paid_out
+    available = balance
     link = f"{BOT_URL}?start=partner_{tg_id}"
     await callback.message.edit_text(
         lexicon["partner_dashboard"].format(
@@ -281,10 +282,10 @@ async def _send_partner_dashboard(callback: CallbackQuery) -> None:
             payments_sum=payments_sum,
             total_earned=total_earned,
             paid_out=paid_out,
-            balance=balance,
+            balance=available,
         ),
         parse_mode="HTML",
-        reply_markup=keyboard_partner_dashboard(),
+        reply_markup=keyboard_partner_dashboard(show_withdraw=available >= PARTNER_MIN_WITHDRAW),
         disable_web_page_preview=True,
     )
 
@@ -299,7 +300,7 @@ async def partner_program(callback: CallbackQuery):
         await callback.message.edit_text(
             lexicon["partner_intro"].format(
                 procent=PARTNER_PROCENT,
-                min_sum=PARTNER_MIN,
+                min_sum=PARTNER_MIN_WITHDRAW,
             ),
             parse_mode="HTML",
             reply_markup=keyboard_partner_intro(),
@@ -320,10 +321,10 @@ async def partner_withdraw(callback: CallbackQuery):
         await callback.answer()
         return
 
-    balance = user.partner_balance or 0
-    if balance < PARTNER_MIN:
+    available = user.partner_balance or 0
+    if available < PARTNER_MIN_WITHDRAW:
         await callback.answer(
-            lexicon["partner_withdraw_alert"].format(min_sum=PARTNER_MIN),
+            lexicon["partner_withdraw_alert"].format(min_sum=PARTNER_MIN_WITHDRAW),
             show_alert=True,
         )
         return
@@ -332,8 +333,8 @@ async def partner_withdraw(callback: CallbackQuery):
     support_url = PARTNER_SUPPORT_URL or "https://t.me/"
     await callback.message.edit_text(
         lexicon["partner_withdraw_info"].format(
-            balance=balance,
-            min_sum=PARTNER_MIN,
+            balance=available,
+            min_sum=PARTNER_MIN_WITHDRAW,
         ),
         parse_mode="HTML",
         reply_markup=keyboard_partner_withdraw(support_url),

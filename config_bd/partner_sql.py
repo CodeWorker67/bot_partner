@@ -354,6 +354,38 @@ class PartnerSQL:
             )
             await session.commit()
 
+    async def add_owner_partner_pay(self, amount: int) -> Tuple[bool, str]:
+        if amount == 0:
+            return False, "Сумма не может быть 0"
+        async with self.session_factory() as session:
+            stmt = select(PartnerBotSettings).where(PartnerBotSettings.bot_id == BOT_ID)
+            row = (await session.execute(stmt)).scalar_one_or_none()
+            if not row:
+                return False, "Настройки бота не найдены"
+            total = row.partner_balance or 0
+            paid = row.partner_pay or 0
+            current = max(total - paid, 0)
+            if amount > 0:
+                if current < amount:
+                    return (
+                        False,
+                        f"Недостаточно на балансе: {current} ₽, запрошено {amount} ₽",
+                    )
+            else:
+                if paid + amount < 0:
+                    return (
+                        False,
+                        f"Нельзя уменьшить partner_pay ниже 0: выведено {paid} ₽, "
+                        f"коррекция {amount} ₽",
+                    )
+            await session.execute(
+                update(PartnerBotSettings)
+                .where(PartnerBotSettings.bot_id == BOT_ID)
+                .values(partner_pay=func.coalesce(PartnerBotSettings.partner_pay, 0) + amount)
+            )
+            await session.commit()
+            return True, ""
+
     async def add_partner_balance(self, amount: int) -> None:
         """Начисление с платежей в этом боте (50% / 20%)."""
         async with self.session_factory() as session:

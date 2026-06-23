@@ -105,3 +105,49 @@ async def partner_remove_command(message: Message):
         await message.answer(
             f"✅ Списано {amount} ₽ с баланса пользователя {target_id}, добавлено в partner_pay."
         )
+
+
+@router.message(Command(commands=["pay_to_client"]))
+async def pay_to_client_command(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    args = (message.text or "").split()
+    if len(args) < 2:
+        await message.answer(
+            "❌ Использование: /pay_to_client <сумма>\n"
+            "Например: /pay_to_client 3000\n"
+            "Отрицательное число — коррекция (уменьшение partner_pay)."
+        )
+        return
+
+    try:
+        amount = int(args[1].strip())
+    except ValueError:
+        await message.answer("❌ Сумма должна быть целым числом.")
+        return
+
+    if amount == 0:
+        await message.answer("❌ Сумма не может быть 0.")
+        return
+
+    ok, err = await sql.add_owner_partner_pay(amount)
+    if not ok:
+        await message.answer(f"❌ {err}")
+        return
+
+    settings = await sql.get_bot_settings() or {}
+    total = settings.get("partner_balance", 0) or 0
+    paid = settings.get("partner_pay", 0) or 0
+    current = max(total - paid, 0)
+    if amount > 0:
+        action = f"К <b>partner_pay</b> добавлено <b>{amount} ₽</b>"
+    else:
+        action = f"Из <b>partner_pay</b> списано <b>{-amount} ₽</b> (коррекция)"
+    await message.answer(
+        f"✅ {action}.\n\n"
+        f"Всего заработано: <b>{total} ₽</b>\n"
+        f"Выведено: <b>{paid} ₽</b>\n"
+        f"Текущий баланс: <b>{current} ₽</b>",
+        parse_mode="HTML",
+    )

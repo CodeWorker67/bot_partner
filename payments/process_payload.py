@@ -29,14 +29,11 @@ def _payment_rub(method: str, amount: int | float) -> int:
 
 
 async def _credit_partner_commission(payer_uid: int, method: str, amount: int | float) -> None:
-    user_row = await sql.get_user(payer_uid)
-    if not user_row or len(user_row) <= 25:
-        return
-    partner_str = user_row[25]
-    if not partner_str:
+    user = await sql.get_user_object_by_user_id(payer_uid)
+    if not user or not user.partner:
         return
     try:
-        partner_id = int(partner_str)
+        partner_id = int(user.partner)
     except ValueError:
         return
     if partner_id <= 0 or partner_id == payer_uid:
@@ -67,8 +64,9 @@ async def _distribute_commissions(payer_uid: int, method: str, amount: int | flo
     if rub <= 0:
         return
 
-    user_row = await sql.get_user(payer_uid)
-    ref_id_str = user_row[2] if user_row else None
+    user = await sql.get_user_object_by_user_id(payer_uid)
+    ref_id_str = user.ref if user else None
+    partner_str = user.partner if user else None
 
     if ref_id_str:
         try:
@@ -88,7 +86,9 @@ async def _distribute_commissions(payer_uid: int, method: str, amount: int | flo
         except ValueError:
             pass
 
-    owner_share = PARTNER_SHARE_REF if ref_id_str else PARTNER_SHARE_DEFAULT
+    # С партнёрской или реферальной ссылкой владелец бота получает 20%, иначе 50%
+    has_partner_or_ref_link = bool(ref_id_str or partner_str)
+    owner_share = PARTNER_SHARE_REF if has_partner_or_ref_link else PARTNER_SHARE_DEFAULT
     owner_commission = rub * owner_share // 100
     if owner_commission > 0 and payer_uid != OWNER_TG_ID:
         await sql.add_partner_balance(owner_commission)

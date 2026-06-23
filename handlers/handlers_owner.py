@@ -12,7 +12,7 @@ from aiogram.types import CallbackQuery, Message
 from bot import bot, sql
 from config import OWNER_TG_ID, PARTNER_MIN_WITHDRAW, PARTNER_SUPPORT_URL, TARIFF_KEYS, TRIAL_DAYS_MAX, TRIAL_DAYS_MIN, DEFAULT_PRICES
 from config_bd.partner_sql import parse_user_profile, pro_subscription_end_active, user_has_active_pro_subscription
-from keyboard import BTN_BACK, create_kb, keyboard_owner_main, keyboard_owner_prices, keyboard_owner_users
+from keyboard import BTN_BACK, create_kb, keyboard_owner_balance, keyboard_owner_main, keyboard_owner_prices, keyboard_owner_users
 from lexicon import lexicon
 from logging_config import logger
 from tariff_resolve import OWNER_PRICE_SHORT
@@ -74,6 +74,15 @@ def _owner_only(handler):
     return wrapper
 
 
+def _owner_balance_fields(settings: dict | None) -> tuple[int, int, int, int, int]:
+    total = int((settings or {}).get("partner_balance", 0) or 0)
+    own = int((settings or {}).get("balance_own_bot", 0) or 0)
+    child = int((settings or {}).get("balance_child_bots", 0) or 0)
+    paid = int((settings or {}).get("partner_pay", 0) or 0)
+    current = max(total - paid, 0)
+    return total, own, child, paid, current
+
+
 async def send_owner_menu(target: Message | CallbackQuery):
     text = lexicon["owner_panel_intro"]
     kb = keyboard_owner_main()
@@ -104,8 +113,7 @@ async def owner_stats(callback: CallbackQuery):
     visits_month = await sql.count_bot_visits_since(month_start)
 
     settings = await sql.get_bot_settings()
-    balance = (settings or {}).get("partner_balance", 0) or 0
-    balance_txt = f"{balance:.2f}"
+    total, own, child, paid, current = _owner_balance_fields(settings)
 
     partner_since = (settings or {}).get("partner_since") if settings else None
     if partner_since:
@@ -116,7 +124,8 @@ async def owner_stats(callback: CallbackQuery):
         partner_since_txt = "—"
 
     text = lexicon["owner_stats"].format(
-        users, visits_today, visits_week, visits_month, balance_txt, partner_since_txt
+        users, visits_today, visits_week, visits_month,
+        total, own, child, paid, current, partner_since_txt,
     )
     await callback.message.edit_text(text, reply_markup=create_kb(1, owner_panel=BTN_BACK))
     await callback.answer()
@@ -543,15 +552,31 @@ async def owner_trial_save(message: Message, state: FSMContext):
 @_owner_only
 async def owner_balance(callback: CallbackQuery):
     settings = await sql.get_bot_settings()
-    total = settings.get("partner_balance", 0) if settings else 0
-    own = settings.get("balance_own_bot", 0) if settings else 0
-    child = settings.get("balance_child_bots", 0) if settings else 0
-    paid = settings.get("partner_pay", 0) if settings else 0
-    text = lexicon["owner_balance"].format(total, own, child, paid, PARTNER_MIN_WITHDRAW)
-    if total >= PARTNER_MIN_WITHDRAW:
-        text += "\n\n" + lexicon["owner_withdraw_info"].format(total, PARTNER_SUPPORT_URL)
+    total, own, child, paid, current = _owner_balance_fields(settings)
+    text = lexicon["owner_balance"].format(total, own, child, paid, current, PARTNER_MIN_WITHDRAW)
+    can_withdraw = current >= PARTNER_MIN_WITHDRAW
+    if can_withdraw:
+        text += "\n\n" + lexicon["owner_withdraw_hint"]
     await callback.message.edit_text(
         text,
-        reply_markup=create_kb(1, owner_panel=BTN_BACK),
+        reply_markup=keyboard_owner_balance(show_withdraw=can_withdraw),
     )
     await callback.answer()
+
+
+@router.callback_query(F.data == "owner_withdraw")
+@_owner_only
+async def owner_withdraw(callback: CallbackQuery):
+    settings = await sql.get_bot_settings()
+    _, _, _, _, current = _owner_balance_fields(settings)
+    if current < PARTNER_MIN_WITHDRAW:
+        await callback.answer(
+            lexicon["owner_withdraw_alert"].format(PARTNER_MIN_WITHDRAW),
+            show_alert=True,
+        )
+        return
+    await callback.answer()
+    await callback.message.edit_text(
+        lexicon["owner_withdraw_info"].format(current, PARTNER_SUPPORT_URL),
+        reply_markup=keyboard_owner_balance(show_withdraw=True),
+    )
