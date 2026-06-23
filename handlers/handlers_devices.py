@@ -8,11 +8,11 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot import x3
+from handlers.handlers_user import _main_keyboard
 from keyboard import (
     BTN_BACK,
     keyboard_devices_list,
     keyboard_devices_subscriptions,
-    keyboard_start,
 )
 from lexicon import lexicon
 from logging_config import logger
@@ -178,7 +178,7 @@ async def devices_back_to_main(callback: CallbackQuery) -> None:
     await callback.answer()
     await callback.message.edit_text(
         text=lexicon["start"],
-        reply_markup=keyboard_start(),
+        reply_markup=await _main_keyboard(callback.from_user.id),
         disable_web_page_preview=True,
     )
 

@@ -180,6 +180,15 @@ def keyboard_start():
     rows.append(
         [
             InlineKeyboardButton(
+                text="🤖 Создать своего VPN-бота",
+                callback_data="create_partner_bot",
+                style=STYLE_SUCCESS,
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
                 text="📋 Отзывы",
                 url=REVIEWS_URL,
                 style=STYLE_PRIMARY,
