@@ -579,13 +579,33 @@ def keyboard_devices_list(
             [
                 InlineKeyboardButton(
                     text=btn_text[:64],
-                    callback_data=f"dev_rm_{slot_key}_{idx}",
+                    callback_data=f"dev_ask_{slot_key}_{idx}",
                     style=STYLE_DANGER,
                 )
             ]
         )
     buttons.append([InlineKeyboardButton(text=BTN_BACK, callback_data="dev_back_subs")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def keyboard_devices_confirm(slot_key: str, device_idx: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Да",
+                    callback_data=f"dev_rm_yes_{slot_key}_{device_idx}",
+                    style=STYLE_SUCCESS,
+                ),
+                InlineKeyboardButton(
+                    text="❌ Нет",
+                    callback_data=f"dev_rm_no_{slot_key}_{device_idx}",
+                    style=STYLE_DANGER,
+                ),
+            ],
+            [InlineKeyboardButton(text=BTN_BACK, callback_data=f"dev_sub_{slot_key}")],
+        ]
+    )
 
 
 def keyboard_partner_intro():

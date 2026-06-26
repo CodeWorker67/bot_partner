@@ -11,6 +11,7 @@ from bot import x3
 from handlers.handlers_user import _main_keyboard
 from keyboard import (
     BTN_BACK,
+    keyboard_devices_confirm,
     keyboard_devices_list,
     keyboard_devices_subscriptions,
 )
@@ -20,10 +21,12 @@ from logging_config import logger
 router = Router()
 
 _DEV_SUB_RE = re.compile(r"^dev_sub_(main|3|10|white)$")
-_DEV_RM_RE = re.compile(r"^dev_rm_(main|3|10|white)_(\d+)$")
+_DEV_ASK_RE = re.compile(r"^dev_ask_(main|3|10|white)_(\d+)$")
+_DEV_RM_YES_RE = re.compile(r"^dev_rm_yes_(main|3|10|white)_(\d+)$")
+_DEV_RM_NO_RE = re.compile(r"^dev_rm_no_(main|3|10|white)_(\d+)$")
 
 
-def _device_button_label(device: dict[str, Any]) -> str:
+def _device_display_name(device: dict[str, Any]) -> str:
     model = (device.get("deviceModel") or "").strip()
     platform = (device.get("platform") or "").strip()
     os_version = (device.get("osVersion") or "").strip()
@@ -41,7 +44,11 @@ def _device_button_label(device: dict[str, Any]) -> str:
     if os_version:
         name = f"{name} {os_version}"
 
-    return f"📱 {name}"[:64]
+    return name
+
+
+def _device_button_label(device: dict[str, Any]) -> str:
+    return f"📱 {_device_display_name(device)}"[:64]
 
 
 def _device_line(device: dict[str, Any], index: int) -> str:
@@ -110,6 +117,32 @@ async def _devices_screen_text(
         for idx, device in enumerate(devices)
     ]
     return "\n".join(lines), devices, btn_rows
+
+
+def _delete_confirm_text(label: str, device_name: str) -> str:
+    return (
+        f"<b>{escape(label)}</b>\n\n"
+        f"⚠️ Вы точно хотите удалить <b>{escape(device_name)}</b> из подписки?\n\n"
+        f"❗️ Перед удалением обязательно удалите подписку из приложения на этом устройстве — "
+        f"иначе в течение часа оно снова появится в личном кабинете."
+    )
+
+
+async def _resolve_device(
+    telegram_id: int,
+    slot_key: str,
+    device_idx: int,
+) -> tuple[str, str, str, dict[str, Any]] | None:
+    ctx = await _slot_context(telegram_id, slot_key)
+    if not ctx:
+        return None
+
+    label, user_uuid, username = ctx
+    devices, _total = await x3.get_user_hwid_devices(user_uuid)
+    if device_idx < 0 or device_idx >= len(devices):
+        return None
+
+    return label, user_uuid, username, devices[device_idx]
 
 
 async def _show_subscriptions(callback: CallbackQuery) -> None:
@@ -196,9 +229,9 @@ async def devices_pick_subscription(callback: CallbackQuery) -> None:
     await _show_devices(callback, slot_key)
 
 
-@router.callback_query(F.data.regexp(_DEV_RM_RE))
-async def devices_delete_device(callback: CallbackQuery) -> None:
-    match = _DEV_RM_RE.match(callback.data or "")
+@router.callback_query(F.data.regexp(_DEV_ASK_RE))
+async def devices_ask_delete(callback: CallbackQuery) -> None:
+    match = _DEV_ASK_RE.match(callback.data or "")
     if not match:
         await callback.answer()
         return
@@ -206,21 +239,60 @@ async def devices_delete_device(callback: CallbackQuery) -> None:
     slot_key, idx_str = match.groups()
     device_idx = int(idx_str)
 
-    ctx = await _slot_context(callback.from_user.id, slot_key)
-    if not ctx:
-        await callback.answer("Подписка не найдена или истекла", show_alert=True)
-        await _show_subscriptions(callback)
+    resolved = await _resolve_device(callback.from_user.id, slot_key, device_idx)
+    if not resolved:
+        ctx = await _slot_context(callback.from_user.id, slot_key)
+        if not ctx:
+            await callback.answer("Подписка не найдена или истекла", show_alert=True)
+            await _show_subscriptions(callback)
+        else:
+            await callback.answer("Устройство уже удалено", show_alert=True)
+            await _show_devices(callback, slot_key)
         return
 
-    label, user_uuid, username = ctx
-    devices, _total = await x3.get_user_hwid_devices(user_uuid)
+    label, _user_uuid, _username, device = resolved
+    await callback.answer()
+    await callback.message.edit_text(
+        text=_delete_confirm_text(label, _device_display_name(device)),
+        reply_markup=keyboard_devices_confirm(slot_key, device_idx),
+    )
 
-    if device_idx < 0 or device_idx >= len(devices):
-        await callback.answer("Устройство уже удалено", show_alert=True)
-        await _show_devices(callback, slot_key)
+
+@router.callback_query(F.data.regexp(_DEV_RM_NO_RE))
+async def devices_cancel_delete(callback: CallbackQuery) -> None:
+    match = _DEV_RM_NO_RE.match(callback.data or "")
+    if not match:
+        await callback.answer()
         return
 
-    hwid = devices[device_idx].get("hwid")
+    slot_key, _idx_str = match.groups()
+    await callback.answer()
+    await _show_devices(callback, slot_key)
+
+
+@router.callback_query(F.data.regexp(_DEV_RM_YES_RE))
+async def devices_delete_device(callback: CallbackQuery) -> None:
+    match = _DEV_RM_YES_RE.match(callback.data or "")
+    if not match:
+        await callback.answer()
+        return
+
+    slot_key, idx_str = match.groups()
+    device_idx = int(idx_str)
+
+    resolved = await _resolve_device(callback.from_user.id, slot_key, device_idx)
+    if not resolved:
+        ctx = await _slot_context(callback.from_user.id, slot_key)
+        if not ctx:
+            await callback.answer("Подписка не найдена или истекла", show_alert=True)
+            await _show_subscriptions(callback)
+        else:
+            await callback.answer("Устройство уже удалено", show_alert=True)
+            await _show_devices(callback, slot_key)
+        return
+
+    label, user_uuid, username, device = resolved
+    hwid = device.get("hwid")
     if not hwid:
         await callback.answer("Не удалось определить устройство", show_alert=True)
         return
@@ -235,7 +307,7 @@ async def devices_delete_device(callback: CallbackQuery) -> None:
             hwid,
         )
     else:
-        await callback.answer("Устройство удалено")
+        await callback.answer("✅ Устройство удалено")
 
     text, fresh_devices, btn_rows = await _devices_screen_text(label, user_uuid, username)
     if not fresh_devices:
