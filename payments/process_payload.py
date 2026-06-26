@@ -112,7 +112,8 @@ async def _distribute_commissions(payer_uid: int, method: str, amount: int | flo
             )
 
 
-async def process_confirmed_payment(payload: str) -> None:
+async def process_confirmed_payment(payload: str) -> bool:
+    """Обработка подтверждённого платежа. True — подписка/подарок применены успешно."""
     try:
         payload_parts = dict(item.split(":") for item in payload.split(","))
         user_id = int(payload_parts.get("user_id", 0))
@@ -150,7 +151,7 @@ async def process_confirmed_payment(payload: str) -> None:
                 )
             except Exception as e:
                 logger.error("gift msg: {}", e)
-            return
+            return True
 
         user_id_str = panel_username(user_id, BOT_ID, device_slots=device_slots)
         existing = await x3.get_user_by_username(user_id_str)
@@ -161,7 +162,7 @@ async def process_confirmed_payment(payload: str) -> None:
 
         if not response:
             logger.error("panel update failed for {}", user_id_str)
-            return
+            return False
 
         result_active = await x3.activ(user_id_str)
         subscription_time = result_active.get("time", "-")
@@ -193,5 +194,10 @@ async def process_confirmed_payment(payload: str) -> None:
         except Exception as e:
             logger.error("buy notify: {}", e)
 
+        return True
+
     except Exception as e:
         logger.exception("process_confirmed_payment: {}", e)
+        return False
+
+    return False
