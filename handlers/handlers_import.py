@@ -26,12 +26,16 @@ OS_DISPLAY = {
 }
 
 APP_DISPLAY = {
+    "incy": "🔥 INCY",
     "happ": "⭐️ Happ",
     "v2": "📡 V2raytun",
 }
 
 IMPORT_URLS = {
     "android": {
+        "incy": {
+            "url_app": "https://play.google.com/store/apps/details?id=llc.itdev.incy",
+        },
         "happ": {
             "url_app": "https://play.google.com/store/apps/details?id=com.happproxy",
         },
@@ -40,6 +44,9 @@ IMPORT_URLS = {
         },
     },
     "ios": {
+        "incy": {
+            "url_app": "https://apps.apple.com/ru/app/incy/id6756943388",
+        },
         "happ": {
             "url_app": "https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973",
         },
@@ -48,6 +55,9 @@ IMPORT_URLS = {
         },
     },
     "windows": {
+        "incy": {
+            "url_app": "https://github.com/INCY-DEV/incy-platforms/releases/latest/download/incy-windows-setup.exe",
+        },
         "happ": {
             "url_app": "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe",
         },
@@ -56,6 +66,9 @@ IMPORT_URLS = {
         },
     },
     "macos": {
+        "incy": {
+            "url_app": "https://github.com/INCY-DEV/incy-platforms/releases/latest/download/incy-macos-arm64.dmg",
+        },
         "happ": {
             "url_app": "https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973",
         },
@@ -99,7 +112,7 @@ async def import_select_app(callback: CallbackQuery):
 
 @router.callback_query(
     F.data.startswith("import_")
-    & (F.data.endswith("_happ") | F.data.endswith("_v2"))
+    & (F.data.endswith("_incy") | F.data.endswith("_happ") | F.data.endswith("_v2"))
 )
 @require_channel_sub
 async def import_select_sub(callback: CallbackQuery):
@@ -146,7 +159,13 @@ async def import_end(callback: CallbackQuery):
         return
     url_app = urls["url_app"]
 
-    lexicon_key = "import_end_happ" if app_key == "happ" else "import_end_v2"
+    if app_key == "incy":
+        lexicon_key = "import_end_incy"
+    elif app_key == "happ":
+        lexicon_key = "import_end_happ"
+    else:
+        lexicon_key = "import_end_v2"
+
     caption = lexicon[lexicon_key].format(
         os=OS_DISPLAY.get(os_key, os_key),
         app=APP_DISPLAY.get(app_key, app_key),
