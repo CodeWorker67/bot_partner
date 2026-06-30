@@ -7,7 +7,7 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Chat, Message, MessageOriginChannel
 
 from bot import bot, sql
 from config import OWNER_TG_ID, PARTNER_MIN_WITHDRAW, PARTNER_SUPPORT_URL, TARIFF_KEYS, TRIAL_DAYS_MAX, TRIAL_DAYS_MIN, DEFAULT_PRICES
@@ -21,17 +21,52 @@ router = Router()
 OWNER_USERS_PAGE_SIZE = 8
 
 
-def _resolve_channel_input(raw: str) -> tuple[str, str] | None:
-    """@username или t.me/... → (аргумент get_chat, URL для пользователей)."""
+def _forwarded_channel(message: Message) -> Chat | None:
+    origin = message.forward_origin
+    if isinstance(origin, MessageOriginChannel):
+        return origin.chat
+    chat = message.forward_from_chat
+    if chat and chat.type in ("channel", "supergroup"):
+        return chat
+    return None
+
+
+def _is_invite_link(raw: str) -> bool:
+    lower = raw.lower()
+    if "t.me/" not in lower:
+        return False
+    path = raw[lower.index("t.me/") + len("t.me/"):].rstrip("/")
+    return path.startswith("+") or path.startswith("joinchat/")
+
+
+def _parse_channel_chat_id(raw: str) -> int | None:
+    cleaned = raw.strip().replace(" ", "")
+    if not cleaned.lstrip("-").isdigit():
+        return None
+    chat_id = int(cleaned)
+    if chat_id == 0:
+        return None
+    return chat_id
+
+
+def _parse_channel_lookup(raw: str) -> str | int | None:
+    """@username, t.me/username или chat_id → аргумент get_chat."""
     raw = raw.strip()
     if not raw:
+        return None
+
+    if _is_invite_link(raw):
         return None
 
     if raw.startswith("@"):
         username = raw[1:].strip()
         if not username:
             return None
-        return f"@{username}", f"https://t.me/{username}"
+        return f"@{username}"
+
+    chat_id = _parse_channel_chat_id(raw)
+    if chat_id is not None:
+        return chat_id
 
     lower = raw.lower()
     if "t.me/" not in lower:
@@ -41,14 +76,40 @@ def _resolve_channel_input(raw: str) -> tuple[str, str] | None:
     if not path:
         return None
 
-    if path.startswith("+") or path.startswith("joinchat/"):
-        url = f"https://t.me/{path}"
-        return url, url
-
     username = path.split("/")[0]
     if not username:
         return None
-    return f"@{username}", f"https://t.me/{username}"
+    return f"@{username}"
+
+
+async def _user_channel_url(chat: Chat) -> str:
+    if chat.username:
+        return f"https://t.me/{chat.username}"
+    return await bot.export_chat_invite_link(chat.id)
+
+
+async def _save_partner_channel(
+    message: Message,
+    state: FSMContext,
+    channel_id: int,
+    channel_url: str,
+) -> None:
+    me = await bot.get_me()
+    member = await bot.get_chat_member(channel_id, me.id)
+    if member.status not in ("administrator", "creator"):
+        await message.answer("❌ Бот не является администратором канала.")
+        return
+
+    await sql.update_bot_settings(
+        channel_id=channel_id,
+        channel_url=channel_url,
+        channel_required=True,
+    )
+    await state.clear()
+    await message.answer(
+        f"✅ Канал настроен: {channel_url}\nОбязательная подписка включена.",
+        reply_markup=keyboard_owner_main(),
+    )
 
 
 class OwnerFSM(StatesGroup):
@@ -169,8 +230,11 @@ async def owner_broadcast_send(message: Message, state: FSMContext):
 async def owner_channel_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(OwnerFSM.channel_input)
     await callback.message.edit_text(
-        "📢 Отправьте @username канала или ссылку t.me/...\n"
-        "Поддерживаются и приватные ссылки вида t.me/+...\n"
+        "📢 Настройка канала для обязательной подписки:\n\n"
+        "• @username или https://t.me/username — публичный канал\n"
+        "• chat_id (например -1001234567890) — публичный или приватный\n"
+        "• перешлите пост из канала — если не знаете chat_id\n\n"
+        "Ссылки-приглашения t.me/+... не подойдут.\n"
         "Бот должен быть администратором канала.",
         reply_markup=create_kb(1, owner_panel="❌ Отмена"),
     )
@@ -184,39 +248,49 @@ async def owner_channel_save(message: Message, state: FSMContext):
         await state.clear()
         await send_owner_menu(message)
         return
-    raw = (message.text or "").strip()
-    resolved = _resolve_channel_input(raw)
-    if not resolved:
-        await message.answer("❌ Неверный формат. Укажите @channel или ссылку.")
+    forwarded = _forwarded_channel(message)
+    if forwarded:
+        try:
+            chat = await bot.get_chat(forwarded.id)
+            channel_url = await _user_channel_url(chat)
+        except Exception as e:
+            logger.warning(f"owner_channel forward resolve failed: {forwarded.id!r} — {e}")
+            await message.answer(
+                "❌ Не удалось настроить канал. Проверьте, что бот — администратор "
+                "и имеет право «Приглашать пользователей»."
+            )
+            return
+        await _save_partner_channel(message, state, chat.id, channel_url)
         return
 
-    chat_lookup, channel_url = resolved
-    try:
-        chat = await bot.get_chat(chat_lookup)
-    except Exception as e:
-        logger.warning(f"owner_channel get_chat failed: {chat_lookup!r} — {e}")
+    raw = (message.text or "").strip()
+    if _is_invite_link(raw):
         await message.answer(
-            "❌ Не удалось получить канал. Проверьте ссылку и что бот добавлен в канал как администратор."
+            "❌ Инвайт-ссылки t.me/+... не подходят.\n"
+            "Укажите chat_id, @username или перешлите пост из канала."
         )
         return
-    channel_id = chat.id
 
-    me = await bot.get_me()
-    member = await bot.get_chat_member(channel_id, me.id)
-    if member.status not in ("administrator", "creator"):
-        await message.answer("❌ Бот не является администратором канала.")
+    lookup = _parse_channel_lookup(raw)
+    if lookup is None:
+        await message.answer(
+            "❌ Неверный формат.\n"
+            "Укажите @channel, chat_id, ссылку t.me/username или перешлите пост из канала."
+        )
         return
 
-    await sql.update_bot_settings(
-        channel_id=channel_id,
-        channel_url=channel_url,
-        channel_required=True,
-    )
-    await state.clear()
-    await message.answer(
-        f"✅ Канал настроен: {channel_url}\nОбязательная подписка включена.",
-        reply_markup=keyboard_owner_main(),
-    )
+    try:
+        chat = await bot.get_chat(lookup)
+        channel_url = await _user_channel_url(chat)
+    except Exception as e:
+        logger.warning(f"owner_channel get_chat failed: {lookup!r} — {e}")
+        await message.answer(
+            "❌ Не удалось получить канал. Проверьте chat_id/ссылку и что бот добавлен "
+            "в канал как администратор."
+        )
+        return
+
+    await _save_partner_channel(message, state, chat.id, channel_url)
 
 
 async def _owner_user_button_label(user) -> str:
