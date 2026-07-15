@@ -1,12 +1,33 @@
 from aiogram import Router
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 
 from bot import sql
 from config import ADMIN_IDS
+from keyboard import BTN_BACK, create_kb
+from lexicon import lexicon
 from logging_config import logger
 
 router = Router()
+
+PAINT_PROMPTS = [
+    ("total_users", "👥 Всего пользователей:"),
+    ("visits_today", "• За сегодня:"),
+    ("visits_week", "• За неделю:"),
+    ("visits_month", "• За месяц:"),
+    ("total_earned", "💎 Всего заработано:"),
+    ("earned_bot", "⭐️ Заработано от платежей в боте:"),
+    ("earned_partner", "💫 Заработано с партнёрских ботов:"),
+    ("withdrawn", "💸 Выведено средств:"),
+    ("balance", "📈 Текущий баланс:"),
+    ("partner_since", "🗓 Партнёр с:"),
+]
+
+
+class PaintFSM(StatesGroup):
+    waiting_value = State()
 
 
 async def _partner_admin_stats_text(tg_id: int) -> str | None:
@@ -30,6 +51,64 @@ async def _partner_admin_stats_text(tg_id: int) -> str | None:
         f"✅ Выведено: <b>{paid_out} ₽</b>\n"
         f"🏦 Осталось на вывод: <b>{balance} ₽</b>"
     )
+
+
+@router.message(Command(commands=["paint"]))
+async def paint_command(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    await state.clear()
+    await state.set_state(PaintFSM.waiting_value)
+    await state.update_data(paint_step=0, paint_values={})
+    _, prompt = PAINT_PROMPTS[0]
+    await message.answer(f"🎨 Режим /paint\n\nВведите значение для:\n{prompt}")
+
+
+@router.message(PaintFSM.waiting_value)
+async def paint_collect_value(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        await state.clear()
+        return
+
+    value = (message.text or "").strip()
+    if not value:
+        await message.answer("❌ Отправьте текстовое значение.")
+        return
+
+    data = await state.get_data()
+    step = int(data.get("paint_step", 0))
+    values = dict(data.get("paint_values") or {})
+
+    if step < 0 or step >= len(PAINT_PROMPTS):
+        await state.clear()
+        await message.answer("❌ Сессия /paint сброшена. Запустите команду снова.")
+        return
+
+    key, _ = PAINT_PROMPTS[step]
+    values[key] = value
+    next_step = step + 1
+
+    if next_step >= len(PAINT_PROMPTS):
+        await state.clear()
+        text = lexicon["owner_stats"].format(
+            values["total_users"],
+            values["visits_today"],
+            values["visits_week"],
+            values["visits_month"],
+            values["total_earned"],
+            values["earned_bot"],
+            values["earned_partner"],
+            values["withdrawn"],
+            values["balance"],
+            values["partner_since"],
+        )
+        await message.answer(text, reply_markup=create_kb(1, owner_panel=BTN_BACK))
+        return
+
+    await state.update_data(paint_step=next_step, paint_values=values)
+    _, prompt = PAINT_PROMPTS[next_step]
+    await message.answer(f"Введите значение для:\n{prompt}")
 
 
 @router.message(Command(commands=["partner"]))

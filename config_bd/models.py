@@ -10,7 +10,15 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase
 
-from config import BOT_ID, DATABASE_PATH, DEFAULT_PRICES, DEFAULT_TRIAL_DAYS, OWNER_TG_ID
+from config import (
+    BOT_ID,
+    BOT_USERNAME,
+    DATABASE_PATH,
+    DEFAULT_PRICES,
+    DEFAULT_TRIAL_DAYS,
+    OWNER_TG_ID,
+    SOURCE_BOT_ID,
+)
 
 _db_parent = DATABASE_PATH.parent
 _db_parent.mkdir(parents=True, exist_ok=True)
@@ -45,6 +53,10 @@ class PartnerBotSettings(Base):
     trial_days = Column(Integer, default=DEFAULT_TRIAL_DAYS)
     prices_json = Column(String(4096), nullable=True)
     partner_since = Column(DateTime, default=datetime.now)
+    partner_username = Column(String(255), nullable=True)
+    bot_username = Column(String(255), nullable=True)
+    bot_display_name = Column(String(255), nullable=True)
+    source_bot_id = Column(BigInteger, nullable=True)
 
 
 class Users(Base):
@@ -190,6 +202,14 @@ async def _migrate_schema():
             )
         if "balance_child_bots" not in settings_cols:
             await conn.execute(text("ALTER TABLE partner_bot_settings ADD COLUMN balance_child_bots INTEGER DEFAULT 0"))
+        for name, col_type in (
+            ("partner_username", "VARCHAR(255)"),
+            ("bot_username", "VARCHAR(255)"),
+            ("bot_display_name", "VARCHAR(255)"),
+            ("source_bot_id", "BIGINT"),
+        ):
+            if name not in settings_cols:
+                await conn.execute(text(f"ALTER TABLE partner_bot_settings ADD COLUMN {name} {col_type}"))
 
 
 async def _ensure_bot_settings():
@@ -208,6 +228,8 @@ async def _ensure_bot_settings():
                 owner_tg_id=OWNER_TG_ID,
                 trial_days=DEFAULT_TRIAL_DAYS,
                 prices_json=json.dumps(DEFAULT_PRICES),
+                bot_username=BOT_USERNAME or None,
+                source_bot_id=SOURCE_BOT_ID,
             )
         )
         await session.commit()

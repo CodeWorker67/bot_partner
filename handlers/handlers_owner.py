@@ -4,6 +4,7 @@ import inspect
 from datetime import datetime, timezone, timedelta
 
 from aiogram import Router, F
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -95,7 +96,16 @@ async def _save_partner_channel(
     channel_url: str,
 ) -> None:
     me = await bot.get_me()
-    member = await bot.get_chat_member(channel_id, me.id)
+    try:
+        member = await bot.get_chat_member(channel_id, me.id)
+    except (TelegramBadRequest, TelegramForbiddenError) as e:
+        logger.warning(f"owner_channel get_chat_member failed: {channel_id} — {e}")
+        await message.answer(
+            "❌ Не удалось проверить канал.\n"
+            "Убедитесь, что канал существует и бот добавлен в него как администратор "
+            "с правом приглашать пользователей."
+        )
+        return
     if member.status not in ("administrator", "creator"):
         await message.answer("❌ Бот не является администратором канала.")
         return
@@ -231,10 +241,10 @@ async def owner_channel_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(OwnerFSM.channel_input)
     await callback.message.edit_text(
         "📢 Настройка канала для обязательной подписки:\n\n"
-        "• @username или https://t.me/username — публичный канал\n"
+        "• @юзернейм_вашего_канала или https://t.me/юзернейм_вашего_канала — публичный канал\n"
         "• chat_id (например -1001234567890) — публичный или приватный\n"
         "• перешлите пост из канала — если не знаете chat_id\n\n"
-        "Ссылки-приглашения t.me/+... не подойдут.\n"
+        "Ссылки-приглашения https://t.me/+... не подойдут.\n"
         "Бот должен быть администратором канала.",
         reply_markup=create_kb(1, owner_panel="❌ Отмена"),
     )
@@ -267,7 +277,7 @@ async def owner_channel_save(message: Message, state: FSMContext):
     if _is_invite_link(raw):
         await message.answer(
             "❌ Инвайт-ссылки t.me/+... не подходят.\n"
-            "Укажите chat_id, @username или перешлите пост из канала."
+            "Укажите chat_id, @юзернейм_вашего_канала, https://t.me/юзернейм_вашего_канала или перешлите пост из канала."
         )
         return
 
@@ -275,7 +285,7 @@ async def owner_channel_save(message: Message, state: FSMContext):
     if lookup is None:
         await message.answer(
             "❌ Неверный формат.\n"
-            "Укажите @channel, chat_id, ссылку t.me/username или перешлите пост из канала."
+            "Укажите chat_id, @юзернейм_вашего_канала, https://t.me/юзернейм_вашего_канала или перешлите пост из канала."
         )
         return
 
@@ -285,7 +295,7 @@ async def owner_channel_save(message: Message, state: FSMContext):
     except Exception as e:
         logger.warning(f"owner_channel get_chat failed: {lookup!r} — {e}")
         await message.answer(
-            "❌ Не удалось получить канал. Проверьте chat_id/ссылку и что бот добавлен "
+            "❌ Не удалось получить канал. Проверьте chat_id/ссылку  что это ваш канал и что бот добавлен "
             "в канал как администратор."
         )
         return

@@ -345,6 +345,10 @@ class PartnerSQL:
                 "trial_days": row.trial_days or 3,
                 "prices_json": row.prices_json,
                 "partner_since": row.partner_since,
+                "partner_username": row.partner_username,
+                "bot_username": row.bot_username,
+                "bot_display_name": row.bot_display_name,
+                "source_bot_id": row.source_bot_id,
             }
 
     async def update_bot_settings(self, **kwargs) -> None:
