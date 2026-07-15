@@ -189,9 +189,11 @@ async def _migrate_schema():
         settings_cols = {row[1] for row in result.fetchall()}
         if "partner_since" not in settings_cols:
             await conn.execute(text("ALTER TABLE partner_bot_settings ADD COLUMN partner_since DATETIME"))
-            await conn.execute(
-                text("UPDATE partner_bot_settings SET partner_since = CURRENT_TIMESTAMP WHERE partner_since IS NULL")
-            )
+            settings_cols.add("partner_since")
+        # Только NULL — уже записанную дату не перезаписываем
+        await conn.execute(
+            text("UPDATE partner_bot_settings SET partner_since = CURRENT_TIMESTAMP WHERE partner_since IS NULL")
+        )
         if "balance_own_bot" not in settings_cols:
             await conn.execute(text("ALTER TABLE partner_bot_settings ADD COLUMN balance_own_bot INTEGER DEFAULT 0"))
             await conn.execute(
@@ -220,7 +222,12 @@ async def _ensure_bot_settings():
     async with AsyncSessionLocal() as session:
         stmt = select(PartnerBotSettings).where(PartnerBotSettings.bot_id == BOT_ID)
         result = await session.execute(stmt)
-        if result.scalar_one_or_none():
+        row = result.scalar_one_or_none()
+        if row:
+            # Первый деплой мог создать запись без даты — дописываем один раз
+            if row.partner_since is None:
+                row.partner_since = datetime.now()
+                await session.commit()
             return
         session.add(
             PartnerBotSettings(
@@ -230,6 +237,7 @@ async def _ensure_bot_settings():
                 prices_json=json.dumps(DEFAULT_PRICES),
                 bot_username=BOT_USERNAME or None,
                 source_bot_id=SOURCE_BOT_ID,
+                partner_since=datetime.now(),
             )
         )
         await session.commit()
