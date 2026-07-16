@@ -14,7 +14,7 @@ from config import (
     SOURCE_BOT_ID,
 )
 from keyboard import BTN_BACK, create_kb, keyboard_sub_after_buy
-from lead_tracker import post_payment_success
+from lead_tracker import post_payment_success, post_user_trial
 from lexicon import lexicon
 from logging_config import logger
 from tariff_resolve import panel_username
@@ -155,6 +155,7 @@ async def process_confirmed_payment(payload: str) -> bool:
 
         user_id_str = panel_username(user_id, BOT_ID, device_slots=device_slots)
         existing = await x3.get_user_by_username(user_id_str)
+        created_in_panel = not (existing and existing.get("response"))
         if existing and existing.get("response"):
             response = await x3.updateClient(duration, user_id_str, user_id)
         else:
@@ -179,6 +180,8 @@ async def process_confirmed_payment(payload: str) -> bool:
                 logger.error("date parse: {}", e)
 
         await sql.update_in_panel(user_id)
+        if created_in_panel:
+            await post_user_trial(user_id)
         await sql.update_reserve_field(user_id)
         await post_payment_success(user_id, method, amount)
         await _distribute_commissions(user_id, method, amount)

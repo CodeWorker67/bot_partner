@@ -1,5 +1,10 @@
 """
-Постбеки в Lead Tracker (FastAPI на VPS): POST /users/, /users/connected, /payments/.
+Постбеки в Lead Tracker (FastAPI на VPS):
+  POST /users/          — регистрация / sync
+  POST /users/trial     — пользователь создан в панели («Взяли подписку»)
+  POST /users/connected — первое подключение VPN
+  POST /payments/       — успешная оплата
+
 Включается, если заданы LEAD_TRACKER_BASE и LEAD_TRACKER_API_KEY.
 """
 from __future__ import annotations
@@ -18,7 +23,6 @@ from config import (
 )
 from logging_config import logger
 
-# Platega (sbp/card/crypto) + Cryptobot + WATA + Stars; сумма в payload — в рублях (кроме stars → конвертация).
 _TRACKED_PAYMENT_METHODS = frozenset(
     {
         "stars", "cryptobot", "wata_sbp", "wata_card", "sbp", "card", "crypto",
@@ -35,11 +39,15 @@ def _post_body_log_summary(body: dict[str, Any]) -> str:
         parts.append(f"source={body.get('source')!r}")
     if body.get("username") is not None:
         parts.append(f"username={body.get('username')!r}")
+    if body.get("bot_username") is not None:
+        parts.append(f"bot_username={body.get('bot_username')!r}")
     return ", ".join(parts)
 
 
 _cached_bot_id: Optional[int] = None
 _cached_bot_username: Optional[str] = None
+_cached_partner_full_name: Optional[str] = None
+_partner_full_name_resolved: bool = False
 
 
 def is_enabled() -> bool:
@@ -60,6 +68,24 @@ async def _bot_meta() -> tuple[Optional[int], Optional[str]]:
     except Exception as e:
         logger.error(f"Lead Tracker: bot.get_me() failed: {e}")
         return None, None
+
+
+async def _resolve_partner_full_name(owner_tg_id: Optional[int]) -> Optional[str]:
+    global _cached_partner_full_name, _partner_full_name_resolved
+    if _partner_full_name_resolved:
+        return _cached_partner_full_name
+    _partner_full_name_resolved = True
+    if not owner_tg_id:
+        return None
+    try:
+        chat = await bot.get_chat(owner_tg_id)
+        name = getattr(chat, "full_name", None) or getattr(chat, "first_name", None)
+        if name:
+            _cached_partner_full_name = str(name).strip() or None
+        return _cached_partner_full_name
+    except Exception as e:
+        logger.debug(f"Lead Tracker: get_chat(owner) failed: {e}")
+        return None
 
 
 def _base_url() -> str:
@@ -137,6 +163,69 @@ def _source_from_row(row: tuple) -> Optional[str]:
     return tracker_source_from_ref_and_stamp(ref, stamp, partner)
 
 
+def _iso_dt(val: Any) -> Optional[str]:
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val.isoformat()
+    if isinstance(val, date):
+        return datetime.combine(val, datetime.min.time()).isoformat()
+    return None
+
+
+async def _partner_context() -> dict[str, Any]:
+    """Поля партнёра/бота из PartnerBotSettings (+ get_me / get_chat)."""
+    bot_id, me_username = await _bot_meta()
+    settings = await sql.get_bot_settings() or {}
+    owner_tg_id = settings.get("owner_tg_id")
+    partner_full_name = await _resolve_partner_full_name(owner_tg_id)
+    bot_username = settings.get("bot_username") or me_username
+    bot_display_name = settings.get("bot_display_name")
+    if not bot_display_name and me_username:
+        bot_display_name = me_username
+
+    return {
+        "bot_id": bot_id,
+        "owner_tg_id": owner_tg_id,
+        "partner_since": _iso_dt(settings.get("partner_since")),
+        "partner_username": settings.get("partner_username"),
+        "partner_full_name": partner_full_name,
+        "bot_username": bot_username,
+        "bot_display_name": bot_display_name,
+        "bot_name": bot_display_name,
+        "source_bot_id": settings.get("source_bot_id"),
+    }
+
+
+async def _user_body(
+    telegram_user_id: int,
+    *,
+    username: Optional[str] = None,
+    full_name: Optional[str] = None,
+    source: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    ctx = await _partner_context()
+    if ctx.get("bot_id") is None:
+        return None
+    body: dict[str, Any] = {
+        "user_id": telegram_user_id,
+        "username": username,
+        "full_name": full_name,
+        "user_full_name": full_name,
+        "source": source,
+        "bot_id": ctx["bot_id"],
+        "bot_name": ctx.get("bot_name"),
+        "bot_display_name": ctx.get("bot_display_name"),
+        "bot_username": ctx.get("bot_username"),
+        "owner_tg_id": ctx.get("owner_tg_id"),
+        "partner_since": ctx.get("partner_since"),
+        "partner_username": ctx.get("partner_username"),
+        "partner_full_name": ctx.get("partner_full_name"),
+        "source_bot_id": ctx.get("source_bot_id"),
+    }
+    return body
+
+
 async def sync_user_from_db(telegram_user_id: int) -> bool:
     if not is_enabled():
         return False
@@ -144,17 +233,14 @@ async def sync_user_from_db(telegram_user_id: int) -> bool:
     if row is None:
         logger.debug(f"Lead Tracker [sync]: пользователь {telegram_user_id} не найден в локальной БД")
         return False
-    bot_id, bot_name = await _bot_meta()
-    if bot_id is None:
+    body = await _user_body(
+        telegram_user_id,
+        username=None,
+        full_name=None,
+        source=_source_from_row(row),
+    )
+    if body is None:
         return False
-    body = {
-        "user_id": telegram_user_id,
-        "username": None,
-        "full_name": None,
-        "source": _source_from_row(row),
-        "bot_id": bot_id,
-        "bot_name": bot_name,
-    }
     return await _post_json("/users/", body, kind="sync")
 
 
@@ -167,31 +253,33 @@ async def post_user_registered(
     if not is_enabled():
         logger.debug("Lead Tracker [register]: пропуск, трекер не настроен")
         return
-    bot_id, bot_name = await _bot_meta()
-    if bot_id is None:
+    body = await _user_body(
+        telegram_user_id,
+        username=username,
+        full_name=full_name,
+        source=source,
+    )
+    if body is None:
         logger.warning("Lead Tracker [register]: пропуск, bot_id недоступен")
         return
-    body = {
-        "user_id": telegram_user_id,
-        "username": username,
-        "full_name": full_name,
-        "source": source,
-        "bot_id": bot_id,
-        "bot_name": bot_name,
-    }
     await _post_json("/users/", body, kind="register")
 
 
-# async def post_user_trial(telegram_user_id: int) -> None:
-#     if not is_enabled():
-#         logger.debug("Lead Tracker [trial]: пропуск, трекер не настроен")
-#         return
-#     await sync_user_from_db(telegram_user_id)
-#     bot_id, _ = await _bot_meta()
-#     if bot_id is None:
-#         logger.warning("Lead Tracker [trial]: пропуск после sync, bot_id недоступен")
-#         return
-#     await _post_json("/users/trial", {"user_id": telegram_user_id, "bot_id": bot_id}, kind="trial")
+async def post_user_trial(telegram_user_id: int) -> None:
+    """Пользователь успешно создан в панели → «Взяли подписку»."""
+    if not is_enabled():
+        logger.debug("Lead Tracker [trial]: пропуск, трекер не настроен")
+        return
+    await sync_user_from_db(telegram_user_id)
+    bot_id, _ = await _bot_meta()
+    if bot_id is None:
+        logger.warning("Lead Tracker [trial]: пропуск после sync, bot_id недоступен")
+        return
+    await _post_json(
+        "/users/trial",
+        {"user_id": telegram_user_id, "bot_id": bot_id},
+        kind="trial",
+    )
 
 
 async def post_user_connected(telegram_user_id: int) -> None:

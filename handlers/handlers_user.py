@@ -1,5 +1,3 @@
-import secrets
-
 from aiogram import Router, F
 from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, Message, ChatMemberUpdated
@@ -23,6 +21,11 @@ from keyboard import (
     keyboard_subscription,
 )
 from lexicon import lexicon, payment_tariff_summary_pro
+from lead_tracker import (
+    post_user_registered,
+    post_user_trial,
+    tracker_source_from_ref_and_stamp,
+)
 from logging_config import logger
 from tariff_resolve import device_from_tariff_key, get_prices, panel_username, tariff_days_for_x3, tariff_rub_and_desc
 
@@ -40,14 +43,14 @@ async def _main_keyboard(user_id: int, *, welcome_only: bool = False):
     )
 
 
-async def _ensure_user(message: Message, ref: str = "") -> None:
+async def _ensure_user(message: Message, ref: str = "", stamp: str = "") -> None:
     tg_id = message.from_user.id
     if not await sql.get_user(tg_id):
         await sql.add_user(
             tg_id,
             in_panel=False,
             ref=ref,
-            stamp=secrets.token_hex(4),
+            stamp=stamp,
         )
     await sql.sync_user_profile(
         tg_id,
@@ -82,6 +85,7 @@ async def _send_main_menu(
 async def process_start_command(message: Message):
     ref_login = ""
     partner_login = ""
+    stamp = ""
     start_arg = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else ""
     if start_arg.startswith("partner_"):
         raw_partner = start_arg.replace("partner_", "", 1)
@@ -95,13 +99,15 @@ async def process_start_command(message: Message):
         gift_id = start_arg.replace("gift_", "", 1)
         await _activate_gift(message, gift_id)
         return
+    elif start_arg:
+        stamp = start_arg
 
     is_new = await sql.add_user(
         message.from_user.id,
         in_panel=False,
         ref=ref_login,
         partner=partner_login,
-        stamp=secrets.token_hex(4),
+        stamp=stamp,
     )
     await sql.sync_user_profile(
         message.from_user.id,
@@ -111,6 +117,15 @@ async def process_start_command(message: Message):
     )
     if is_new and ref_login:
         await sql.try_set_ref_from_invite(message.from_user.id, ref_login)
+
+    if is_new:
+        src = tracker_source_from_ref_and_stamp(ref_login, stamp, partner_login)
+        await post_user_registered(
+            message.from_user.id,
+            message.from_user.username,
+            message.from_user.full_name,
+            src,
+        )
 
     blocked, url = await needs_channel_block(message.from_user.id)
     if blocked:
@@ -126,15 +141,32 @@ async def _activate_gift(message: Message, gift_id: str):
         await message.answer("❌ Подарок не найден или уже активирован.")
         return
     tg_id = message.from_user.id
+    is_new = await sql.add_user(tg_id, in_panel=False)
+    await sql.sync_user_profile(
+        tg_id,
+        username=message.from_user.username,
+        full_name=message.from_user.full_name,
+        language=message.from_user.language_code,
+    )
+    if is_new:
+        await post_user_registered(
+            tg_id,
+            message.from_user.username,
+            message.from_user.full_name,
+            None,
+        )
     await sql.activate_gift(gift_id, tg_id)
     user_id_str = panel_username(tg_id, BOT_ID, device_slots=gift.device_slots or 5)
     days = gift.duration
     existing = await x3.get_user_by_username(user_id_str)
+    created_in_panel = not (existing and existing.get("response"))
     if existing and existing.get("response"):
         await x3.updateClient(days, user_id_str, tg_id)
     else:
         await x3.addClient(days, user_id_str, tg_id, hwid_device_limit=gift.device_slots or 5)
     await sql.update_in_panel(tg_id)
+    if created_in_panel:
+        await post_user_trial(tg_id)
     result = await x3.activ(user_id_str)
     sub_time = result.get("time", "-")
     await message.answer(
@@ -227,6 +259,7 @@ async def trial_vpn_cb(callback: CallbackQuery):
         return
     await sql.update_in_panel(tg_id)
     await sql.set_field_bool_3(tg_id, True)
+    await post_user_trial(tg_id)
     result = await x3.activ(user_id_str)
     await callback.message.edit_text(
         lexicon["trial_success"].format(days, result.get("time", "-")),
