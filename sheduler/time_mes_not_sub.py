@@ -9,8 +9,7 @@ from lexicon import lexicon
 from logging_config import logger
 from telegram_ids import is_telegram_chat_id
 
-NOT_SUB_CYCLE_MINUTES = 7 * 24 * 60
-NOT_CONNECT_CYCLE_MINUTES = 24 * 60
+PUSH_ACTIVE_MINUTES = 7 * 24 * 60  # первые 7 дней после регистрации
 
 
 @dataclass(frozen=True)
@@ -34,9 +33,18 @@ NOT_SUB_STAGES = (
 )
 
 NOT_CONNECT_STAGES = (
+    # День 1
     PushStage(30, 60, 'push_not_connected_30m', keyboard='connect'),
     PushStage(180, 210, 'push_not_connected_3h', keyboard='connect'),
     PushStage(1410, 1440, 'push_not_connected_24h', keyboard='connect'),
+    # День 2 (48ч) — 1-е, день 3 (72ч) — 2-е, день 4 (96ч) — 3-е
+    PushStage(2850, 2880, 'push_not_connected_30m', keyboard='connect'),
+    PushStage(4290, 4320, 'push_not_connected_3h', keyboard='connect'),
+    PushStage(5730, 5760, 'push_not_connected_24h', keyboard='connect'),
+    # День 5 (120ч) — 1-е, день 6 (144ч) — 2-е, день 7 (168ч) — 3-е
+    PushStage(7170, 7200, 'push_not_connected_30m', keyboard='connect'),
+    PushStage(8610, 8640, 'push_not_connected_3h', keyboard='connect'),
+    PushStage(10050, 10080, 'push_not_connected_24h', keyboard='connect'),
 )
 
 
@@ -76,9 +84,12 @@ async def _send_push(user_id: int, stage: PushStage) -> None:
 
 async def send_push_cron(debug: bool = False):
     """
-    Push по этапам после регистрации (create_user):
-    1) Нет в панели (in_panel=False) — недельный цикл из 9 сообщений.
-    2) В панели, но VPN не подключён (is_connect=False) — суточный цикл из 3 пушей.
+    Push по этапам после регистрации (create_user), только первые 7 дней:
+    1) Нет в панели (in_panel=False) — 9 сообщений.
+    2) В панели, но VPN не подключён (is_connect=False):
+       день 1 — 3 пуша (+30м, +3ч, +24ч);
+       далее по одному в сутки (48/72/96/120/144/168ч), чередуя те же 3 текста.
+    После 7 дней рассылка не продолжается.
     """
     try:
         all_users = await sql.select_all_users()
@@ -106,13 +117,15 @@ async def send_push_cron(debug: bool = False):
                 if not create_time:
                     continue
 
-                minutes_diff = (now - create_time).total_seconds() / 60
+                minutes_diff = int((now - create_time).total_seconds() / 60)
+                if minutes_diff > PUSH_ACTIVE_MINUTES:
+                    continue
+
                 in_panel = user_data[4]
                 is_connect = user_data[5]
 
                 if not in_panel:
-                    offset = minutes_diff % NOT_SUB_CYCLE_MINUTES
-                    stage = _find_stage(int(offset), NOT_SUB_STAGES)
+                    stage = _find_stage(minutes_diff, NOT_SUB_STAGES)
                     if stage:
                         try:
                             await _send_push(user_id, stage)
@@ -125,8 +138,7 @@ async def send_push_cron(debug: bool = False):
                             logger.error(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
 
                 elif not is_connect:
-                    offset = minutes_diff % NOT_CONNECT_CYCLE_MINUTES
-                    stage = _find_stage(int(offset), NOT_CONNECT_STAGES)
+                    stage = _find_stage(minutes_diff, NOT_CONNECT_STAGES)
                     if stage:
                         try:
                             await _send_push(user_id, stage)
