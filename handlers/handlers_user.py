@@ -181,7 +181,10 @@ async def back_to_main(callback: CallbackQuery):
     if blocked:
         await callback.message.edit_text(
             lexicon["channel_required"],
-            reply_markup=channel_keyboard(url or ""),
+            reply_markup=channel_keyboard(
+                url or "",
+                show_owner_panel=callback.from_user.id == OWNER_TG_ID,
+            ),
         )
         await callback.answer()
         return

@@ -5,6 +5,7 @@ from typing import Callable
 from aiogram.types import CallbackQuery, Message
 
 from bot import bot, sql
+from config import OWNER_TG_ID
 from keyboard import channel_keyboard
 from lexicon import lexicon
 from logging_config import logger
@@ -35,7 +36,8 @@ async def verify_channel_subscription(user_id: int) -> bool:
 
 async def send_channel_required(target: Message | CallbackQuery, channel_url: str) -> None:
     text = lexicon["channel_required"]
-    kb = channel_keyboard(channel_url)
+    user_id = target.from_user.id if target.from_user else 0
+    kb = channel_keyboard(channel_url, show_owner_panel=user_id == OWNER_TG_ID)
     if isinstance(target, CallbackQuery):
         await target.message.answer(text, reply_markup=kb)
         await target.answer()

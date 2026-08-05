@@ -655,8 +655,12 @@ def keyboard_partner_withdraw(support_url: str):
     ])
 
 
-def channel_keyboard(channel_url: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
+def channel_keyboard(
+    channel_url: str,
+    *,
+    show_owner_panel: bool = False,
+) -> InlineKeyboardMarkup:
+    rows = [
         [InlineKeyboardButton(text="👉 Подписаться на канал", url=channel_url, style=STYLE_PRIMARY)],
         [
             InlineKeyboardButton(
@@ -665,7 +669,18 @@ def channel_keyboard(channel_url: str) -> InlineKeyboardMarkup:
                 style=STYLE_SUCCESS,
             )
         ],
-    ])
+    ]
+    if show_owner_panel:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="⚙️ Панель партнёра",
+                    callback_data="owner_panel",
+                    style=STYLE_PRIMARY,
+                )
+            ]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def keyboard_main(
