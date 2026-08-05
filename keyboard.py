@@ -805,6 +805,16 @@ def keyboard_owner_main():
     )
 
 
+def keyboard_owner_channel(*, channel_required: bool) -> InlineKeyboardMarkup:
+    kwargs: dict[str, str] = {"owner_channel_set": "✏️ Указать / сменить канал"}
+    styles: dict[str, str] = {"owner_channel_set": STYLE_PRIMARY}
+    if channel_required:
+        kwargs["owner_channel_disable"] = "❌ Отключить обязательную подписку"
+        styles["owner_channel_disable"] = STYLE_DANGER
+    kwargs["owner_panel"] = BTN_BACK
+    return create_kb(1, styles=styles, **kwargs)
+
+
 def keyboard_owner_balance(*, show_withdraw: bool = False):
     kwargs = {"owner_panel": BTN_BACK}
     styles = {}

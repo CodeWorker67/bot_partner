@@ -13,7 +13,15 @@ from aiogram.types import CallbackQuery, Chat, Message, MessageOriginChannel
 from bot import bot, sql
 from config import OWNER_TG_ID, PARTNER_MIN_WITHDRAW, PARTNER_SUPPORT_URL, TARIFF_KEYS, TRIAL_DAYS_MAX, TRIAL_DAYS_MIN, DEFAULT_PRICES
 from config_bd.partner_sql import parse_user_profile, pro_subscription_end_active, user_has_active_pro_subscription
-from keyboard import BTN_BACK, create_kb, keyboard_owner_balance, keyboard_owner_main, keyboard_owner_prices, keyboard_owner_users
+from keyboard import (
+    BTN_BACK,
+    create_kb,
+    keyboard_owner_balance,
+    keyboard_owner_channel,
+    keyboard_owner_main,
+    keyboard_owner_prices,
+    keyboard_owner_users,
+)
 from lexicon import lexicon
 from logging_config import logger
 from tariff_resolve import OWNER_PRICE_SHORT
@@ -235,7 +243,36 @@ async def owner_broadcast_send(message: Message, state: FSMContext):
     )
 
 
+def _owner_channel_status_text(settings: dict | None) -> str:
+    required = bool(settings and settings.get("channel_required"))
+    url = (settings or {}).get("channel_url") if settings else None
+    if required and url:
+        status = f"Включена\nКанал: {url}"
+    elif required:
+        status = "Включена (ссылка на канал не задана)"
+    else:
+        status = "Выключена"
+    return (
+        "📢 Обязательная подписка на канал\n\n"
+        f"Статус: {status}\n\n"
+        "Можно указать канал или отключить проверку подписки."
+    )
+
+
 @router.callback_query(F.data == "owner_channel")
+@_owner_only
+async def owner_channel_menu(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    settings = await sql.get_bot_settings()
+    required = bool(settings and settings.get("channel_required"))
+    await callback.message.edit_text(
+        _owner_channel_status_text(settings),
+        reply_markup=keyboard_owner_channel(channel_required=required),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "owner_channel_set")
 @_owner_only
 async def owner_channel_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(OwnerFSM.channel_input)
@@ -246,7 +283,24 @@ async def owner_channel_start(callback: CallbackQuery, state: FSMContext):
         "• перешлите пост из канала — если не знаете chat_id\n\n"
         "Ссылки-приглашения https://t.me/+... не подойдут.\n"
         "Бот должен быть администратором канала.",
-        reply_markup=create_kb(1, owner_panel="❌ Отмена"),
+        reply_markup=create_kb(1, owner_channel="❌ Отмена"),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "owner_channel_disable")
+@_owner_only
+async def owner_channel_disable(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await sql.update_bot_settings(
+        channel_id=None,
+        channel_url=None,
+        channel_required=False,
+    )
+    settings = await sql.get_bot_settings()
+    await callback.message.edit_text(
+        "✅ Обязательная подписка отключена.\n\n" + _owner_channel_status_text(settings),
+        reply_markup=keyboard_owner_channel(channel_required=False),
     )
     await callback.answer()
 
