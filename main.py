@@ -6,7 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from bot import bot
 from bot_display import init_bot_display_name
-from config import BOT_ID, OWNER_TG_ID, TG_TOKEN
+from config import BOT_ID, OWNER_TG_ID, OWNER_TG_IDS, TG_TOKEN
 from config_bd.models import create_tables, engine
 from handlers import handlers_user, handlers_devices, handlers_owner, handlers_import, handlers_partner_admin, handlers_create_partner_bot
 from logging_config import logger
@@ -67,7 +67,7 @@ async def main() -> None:
 
     try:
         await bot.delete_webhook(drop_pending_updates=True)
-        logger.info("Partner bot {} (owner {}) started polling.", BOT_ID, OWNER_TG_ID)
+        logger.info("Partner bot {} (owners {}) started polling.", BOT_ID, sorted(OWNER_TG_IDS) or OWNER_TG_ID)
         await dp.start_polling(bot)
     finally:
         await bot.session.close()

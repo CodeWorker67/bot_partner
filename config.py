@@ -8,7 +8,10 @@ load_dotenv()
 
 TG_TOKEN: str = os.environ.get("TG_TOKEN", "")
 BOT_ID: int = int(os.environ.get("BOT_ID", "0"))
-OWNER_TG_ID: int = int(os.environ.get("OWNER_TG_ID", "0"))
+# OWNER_TG_ID — один ID или несколько через запятую: 111,222 (первый — основной для БД)
+_owner_ids = [int(x) for x in os.environ.get("OWNER_TG_ID", "").split(",") if x.strip()]
+OWNER_TG_IDS: Set[int] = set(_owner_ids)
+OWNER_TG_ID: int = _owner_ids[0] if _owner_ids else 0
 BOT_USERNAME: str = (os.environ.get("BOT_USERNAME") or "").lstrip("@")
 _source_bot_id = os.environ.get("SOURCE_BOT_ID")
 SOURCE_BOT_ID: int | None = int(_source_bot_id) if _source_bot_id and _source_bot_id.strip() else None

@@ -6,7 +6,7 @@ from config import (
     BOT_ID,
     DEPLOYED_BOT_PROCENT,
     LEAD_TRACKER_STAR_RUB_PER_STAR,
-    OWNER_TG_ID,
+    OWNER_TG_IDS,
     PARTNER_PROCENT,
     PARTNER_SHARE_DEFAULT,
     PARTNER_SHARE_REF,
@@ -90,15 +90,14 @@ async def _distribute_commissions(payer_uid: int, method: str, amount: int | flo
     has_partner_or_ref_link = bool(ref_id_str or partner_str)
     owner_share = PARTNER_SHARE_REF if has_partner_or_ref_link else PARTNER_SHARE_DEFAULT
     owner_commission = rub * owner_share // 100
-    if owner_commission > 0 and payer_uid != OWNER_TG_ID:
+    if owner_commission > 0 and payer_uid not in OWNER_TG_IDS:
         await sql.add_partner_balance(owner_commission)
-        try:
-            await bot.send_message(
-                OWNER_TG_ID,
-                lexicon["owner_commission_success"].format(owner_commission, payer_uid),
-            )
-        except Exception as e:
-            logger.error("owner notify: {}", e)
+        notify_text = lexicon["owner_commission_success"].format(owner_commission, payer_uid)
+        for owner_id in OWNER_TG_IDS:
+            try:
+                await bot.send_message(owner_id, notify_text)
+            except Exception as e:
+                logger.error("owner notify {}: {}", owner_id, e)
 
     if SOURCE_BOT_ID and SOURCE_BOT_ID != BOT_ID:
         parent_commission = rub * DEPLOYED_BOT_PROCENT // 100

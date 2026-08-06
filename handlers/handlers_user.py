@@ -4,7 +4,7 @@ from aiogram.types import CallbackQuery, Message, ChatMemberUpdated
 
 from bot import bot, sql, x3
 from channel_gate import needs_channel_block, require_channel_sub, send_channel_required, verify_channel_subscription
-from config import BOT_ID, BOT_URL, OWNER_TG_ID, PARTNER_MIN_WITHDRAW, PARTNER_PROCENT, PARTNER_SUPPORT_URL, REFERRAL_PROCENT, SUPPORT_URL
+from config import BOT_ID, BOT_URL, OWNER_TG_IDS, PARTNER_MIN_WITHDRAW, PARTNER_PROCENT, PARTNER_SUPPORT_URL, REFERRAL_PROCENT, SUPPORT_URL
 from keyboard import (
     channel_keyboard,
     keyboard_buy_tiers,
@@ -35,7 +35,7 @@ router = Router()
 async def _main_keyboard(user_id: int, *, welcome_only: bool = False):
     user = await sql.get_user_object_by_user_id(user_id)
     show_trial = not (user and user.in_panel)
-    is_owner = user_id == OWNER_TG_ID
+    is_owner = user_id in OWNER_TG_IDS
     return keyboard_main(
         show_owner_panel=is_owner,
         welcome_only=welcome_only,
@@ -183,7 +183,7 @@ async def back_to_main(callback: CallbackQuery):
             lexicon["channel_required"],
             reply_markup=channel_keyboard(
                 url or "",
-                show_owner_panel=callback.from_user.id == OWNER_TG_ID,
+                show_owner_panel=callback.from_user.id in OWNER_TG_IDS,
             ),
         )
         await callback.answer()
@@ -429,7 +429,7 @@ async def handle_chat_member_update(event: ChatMemberUpdated):
 
 @router.message(Command("panel"))
 async def panel_command(message: Message):
-    if message.from_user.id != OWNER_TG_ID:
+    if message.from_user.id not in OWNER_TG_IDS:
         return
     from handlers.handlers_owner import send_owner_menu
     await send_owner_menu(message)

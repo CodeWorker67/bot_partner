@@ -52,7 +52,11 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--owner-id",
         type=int,
-        default=int(os.environ["OWNER_TG_ID"]) if os.environ.get("OWNER_TG_ID") else 7526241265,
+        default=(
+            int(os.environ["OWNER_TG_ID"].split(",")[0].strip())
+            if os.environ.get("OWNER_TG_ID")
+            else 7526241265
+        ),
     )
     p.add_argument(
         "--db",

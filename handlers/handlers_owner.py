@@ -11,7 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Chat, Message, MessageOriginChannel
 
 from bot import bot, sql
-from config import OWNER_TG_ID, PARTNER_MIN_WITHDRAW, PARTNER_SUPPORT_URL, TARIFF_KEYS, TRIAL_DAYS_MAX, TRIAL_DAYS_MIN, DEFAULT_PRICES
+from config import OWNER_TG_IDS, PARTNER_MIN_WITHDRAW, PARTNER_SUPPORT_URL, TARIFF_KEYS, TRIAL_DAYS_MAX, TRIAL_DAYS_MIN, DEFAULT_PRICES
 from config_bd.partner_sql import parse_user_profile, pro_subscription_end_active, user_has_active_pro_subscription
 from keyboard import (
     BTN_BACK,
@@ -142,7 +142,7 @@ def _owner_only(handler):
     @functools.wraps(handler)
     async def wrapper(event, *args, **kwargs):
         uid = event.from_user.id
-        if uid != OWNER_TG_ID:
+        if uid not in OWNER_TG_IDS:
             if isinstance(event, CallbackQuery):
                 await event.answer("Нет доступа", show_alert=True)
             return
