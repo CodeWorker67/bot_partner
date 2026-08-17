@@ -271,13 +271,15 @@ def _resolve_reply_markup(
     keyboard_mode: str,
     custom_spec: list | None,
     target_user_id: int,
+    *,
+    show_create_partner_bot: bool = True,
 ) -> InlineKeyboardMarkup | None:
     if keyboard_mode == "none":
         return None
     if keyboard_mode == "tariff":
         return keyboard_buy_device_tier()
     if keyboard_mode == "start":
-        return keyboard_start()
+        return keyboard_start(show_create_partner_bot=show_create_partner_bot)
     if keyboard_mode == "custom":
         return _build_custom_reply_markup(custom_spec or [], target_user_id)
     return None
@@ -601,7 +603,13 @@ async def _send_preview_and_confirm(message: Message, state: FSMContext, bot: Bo
         return
 
     preview_uid = message.chat.id
-    markup = _resolve_reply_markup(keyboard_mode, custom_spec, preview_uid)
+    show_create_partner_bot = await sql.is_partner_bot_creation_enabled()
+    markup = _resolve_reply_markup(
+        keyboard_mode,
+        custom_spec,
+        preview_uid,
+        show_create_partner_bot=show_create_partner_bot,
+    )
     try:
         await bot.copy_message(
             chat_id=message.chat.id,
@@ -677,11 +685,17 @@ async def broadcast_confirm_yes(callback: CallbackQuery, state: FSMContext, bot:
         pass
 
     admin_chat_id = callback.message.chat.id
+    show_create_partner_bot = await sql.is_partner_bot_creation_enabled()
     count = 0
     for uid in user_ids:
         if not is_telegram_chat_id(uid):
             continue
-        markup = _resolve_reply_markup(keyboard_mode, custom_spec, uid)
+        markup = _resolve_reply_markup(
+            keyboard_mode,
+            custom_spec,
+            uid,
+            show_create_partner_bot=show_create_partner_bot,
+        )
         try:
             if pin_message:
                 try:

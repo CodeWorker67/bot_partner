@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
+from bot import sql
 from handlers.handlers_user import _main_keyboard
 from keyboard import create_kb
 from lexicon import lexicon
@@ -21,6 +22,9 @@ class CreatePartnerBotFSM(StatesGroup):
 
 @router.callback_query(F.data == "create_partner_bot")
 async def create_partner_bot_start(callback: CallbackQuery, state: FSMContext):
+    if not await sql.is_partner_bot_creation_enabled():
+        await callback.answer(lexicon["create_partner_bot_disabled"], show_alert=True)
+        return
     await state.set_state(CreatePartnerBotFSM.waiting_token)
     await callback.message.edit_text(
         lexicon["create_partner_bot_prompt"],
@@ -45,6 +49,13 @@ async def cancel_partner_apply(callback: CallbackQuery, state: FSMContext):
 
 @router.message(CreatePartnerBotFSM.waiting_token)
 async def create_partner_bot_token(message: Message, state: FSMContext):
+    if not await sql.is_partner_bot_creation_enabled():
+        await state.clear()
+        await message.answer(
+            lexicon["create_partner_bot_disabled"],
+            reply_markup=await _main_keyboard(message.from_user.id),
+        )
+        return
     token = (message.text or "").strip()
     if not token:
         await message.answer("❌ Отправьте токен бота от @BotFather.")

@@ -105,7 +105,11 @@ def chanel_keyboard():
     return keyboard
 
 
-def keyboard_start_bonus(*, show_owner_panel: bool = False) -> InlineKeyboardMarkup:
+def keyboard_start_bonus(
+    *,
+    show_owner_panel: bool = False,
+    show_create_partner_bot: bool = True,
+) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
@@ -121,14 +125,17 @@ def keyboard_start_bonus(*, show_owner_panel: bool = False) -> InlineKeyboardMar
                 style=STYLE_SUCCESS,
             ),
         ],
-        [
-            InlineKeyboardButton(
-                text="🤖 Создать своего VPN-бота",
-                callback_data="create_partner_bot",
-                style=STYLE_SUCCESS,
-            ),
-        ],
     ]
+    if show_create_partner_bot:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🤖 Создать своего VPN-бота",
+                    callback_data="create_partner_bot",
+                    style=STYLE_SUCCESS,
+                ),
+            ]
+        )
     if show_owner_panel:
         rows.append(
             [
@@ -142,7 +149,7 @@ def keyboard_start_bonus(*, show_owner_panel: bool = False) -> InlineKeyboardMar
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def keyboard_start():
+def keyboard_start(*, show_create_partner_bot: bool = True):
     markup = create_kb(
         1,
         styles={
@@ -177,15 +184,16 @@ def keyboard_start():
             )
         ]
     )
-    rows.append(
-        [
-            InlineKeyboardButton(
-                text="🤖 Создать своего VPN-бота",
-                callback_data="create_partner_bot",
-                style=STYLE_SUCCESS,
-            )
-        ]
-    )
+    if show_create_partner_bot:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🤖 Создать своего VPN-бота",
+                    callback_data="create_partner_bot",
+                    style=STYLE_SUCCESS,
+                )
+            ]
+        )
     rows.append(
         [
             InlineKeyboardButton(
@@ -688,9 +696,13 @@ def keyboard_main(
     show_owner_panel: bool = False,
     welcome_only: bool = False,
     show_trial: bool = False,
+    show_create_partner_bot: bool = True,
 ) -> InlineKeyboardMarkup:
     if welcome_only:
-        return keyboard_start_bonus(show_owner_panel=show_owner_panel)
+        return keyboard_start_bonus(
+            show_owner_panel=show_owner_panel,
+            show_create_partner_bot=show_create_partner_bot,
+        )
     rows = []
     if show_trial:
         rows.append(
@@ -706,11 +718,16 @@ def keyboard_main(
         [InlineKeyboardButton(text="🛒 Купить подписку", callback_data="buy_vpn", style=STYLE_SUCCESS)],
         [InlineKeyboardButton(text="🔗 Подключить ВПН", callback_data="connect_vpn", style=STYLE_PRIMARY)],
     ])
-    rows.extend([
+    rows.append(
         [InlineKeyboardButton(text="💸 Зарабатывай с нами", callback_data="partner_earn", style=STYLE_SUCCESS)],
-        [InlineKeyboardButton(text="🤖 Создать своего VPN-бота", callback_data="create_partner_bot", style=STYLE_SUCCESS)],
+    )
+    if show_create_partner_bot:
+        rows.append(
+            [InlineKeyboardButton(text="🤖 Создать своего VPN-бота", callback_data="create_partner_bot", style=STYLE_SUCCESS)],
+        )
+    rows.append(
         [InlineKeyboardButton(text="🎁 Подарить подписку", callback_data="buy_gift", style=STYLE_SUCCESS)],
-    ])
+    )
     if show_owner_panel:
         rows.append([InlineKeyboardButton(text="⚙️ Панель партнёра", callback_data="owner_panel", style=STYLE_PRIMARY)])
     if SUPPORT_URL:
@@ -807,6 +824,8 @@ def keyboard_owner_main():
             "owner_users": STYLE_PRIMARY,
             "owner_prices": STYLE_SUCCESS,
             "owner_trial": STYLE_PRIMARY,
+            "owner_create_bot": STYLE_SUCCESS,
+            "owner_admins": STYLE_PRIMARY,
             "owner_balance": STYLE_SUCCESS,
         },
         owner_stats="📊 Статистика",
@@ -815,8 +834,40 @@ def keyboard_owner_main():
         owner_users="👥 Мои юзеры",
         owner_prices="💰 Мои цены",
         owner_trial="🎁 Триал",
+        owner_create_bot="🤖 Создание партнёрского бота",
+        owner_admins="👤 Назначить администратора",
         owner_balance="💳 Баланс и вывод",
         back_to_main=BTN_BACK,
+    )
+
+
+def keyboard_owner_admins() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Добавить администратора", callback_data="owner_admin_add", style=STYLE_SUCCESS)],
+        [InlineKeyboardButton(text="➖ Удалить администратора", callback_data="owner_admin_remove", style=STYLE_DANGER)],
+        [InlineKeyboardButton(text=BTN_BACK, callback_data="owner_panel", style=STYLE_PRIMARY)],
+    ])
+
+
+def keyboard_owner_create_bot(*, enabled: bool) -> InlineKeyboardMarkup:
+    if enabled:
+        toggle_cb = "owner_create_bot_off"
+        toggle_text = "❌ Выключить создание бота"
+        toggle_style = STYLE_DANGER
+    else:
+        toggle_cb = "owner_create_bot_on"
+        toggle_text = "✅ Включить создание бота"
+        toggle_style = STYLE_SUCCESS
+    return create_kb(
+        1,
+        styles={
+            toggle_cb: toggle_style,
+            "owner_panel": STYLE_PRIMARY,
+        },
+        **{
+            toggle_cb: toggle_text,
+            "owner_panel": BTN_BACK,
+        },
     )
 
 

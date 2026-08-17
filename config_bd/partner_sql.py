@@ -11,13 +11,14 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from sqlalchemy import and_, func, or_, select, update, delete, literal, case, cast, Date, union_all
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from config import BOT_ID, DEFAULT_PRICES, TRIAL_DAYS_MAX, TRIAL_DAYS_MIN
+from config import BOT_ID, DEFAULT_PRICES, PARTNER_PANEL_IDS, TRIAL_DAYS_MAX, TRIAL_DAYS_MIN
 from lexicon import PAYMENT_MINOR_THRESHOLD_RUB
 from config_bd.models import (
     AsyncSessionLocal,
     Gifts,
     Online,
     PartnerBotSettings,
+    PartnerPanelAdmin,
     PaymentsCryptobot,
     PaymentsFkSBP,
     PaymentsStars,
@@ -349,7 +350,80 @@ class PartnerSQL:
                 "bot_username": row.bot_username,
                 "bot_display_name": row.bot_display_name,
                 "source_bot_id": row.source_bot_id,
+                "partner_bot_creation_enabled": (
+                    True if row.partner_bot_creation_enabled is None
+                    else bool(row.partner_bot_creation_enabled)
+                ),
             }
+
+    async def is_partner_bot_creation_enabled(self) -> bool:
+        settings = await self.get_bot_settings()
+        if not settings:
+            return True
+        value = settings.get("partner_bot_creation_enabled")
+        if value is None:
+            return True
+        return bool(value)
+
+    async def list_panel_admins(self) -> List[int]:
+        async with self.session_factory() as session:
+            stmt = (
+                select(PartnerPanelAdmin.tg_id)
+                .where(PartnerPanelAdmin.bot_id == BOT_ID)
+                .order_by(PartnerPanelAdmin.created_at.asc())
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+            return [int(x) for x in rows]
+
+    async def get_partner_panel_ids(self) -> Set[int]:
+        return set(PARTNER_PANEL_IDS) | set(await self.list_panel_admins())
+
+    async def can_access_partner_panel(self, user_id: int) -> bool:
+        return user_id in await self.get_partner_panel_ids()
+
+    async def add_panel_admin(self, tg_id: int) -> Tuple[bool, str]:
+        if tg_id <= 0:
+            return False, "Некорректный tg_id."
+        if tg_id in PARTNER_PANEL_IDS:
+            return False, "Этот пользователь уже имеет доступ к панели."
+        async with self.session_factory() as session:
+            exists = (
+                await session.execute(
+                    select(PartnerPanelAdmin.id).where(
+                        PartnerPanelAdmin.bot_id == BOT_ID,
+                        PartnerPanelAdmin.tg_id == tg_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if exists:
+                return False, "Этот администратор уже назначен."
+            session.add(PartnerPanelAdmin(bot_id=BOT_ID, tg_id=tg_id))
+            await session.commit()
+        return True, "OK"
+
+    async def remove_panel_admin(self, tg_id: int) -> Tuple[bool, str]:
+        if tg_id <= 0:
+            return False, "Некорректный tg_id."
+        async with self.session_factory() as session:
+            result = await session.execute(
+                delete(PartnerPanelAdmin).where(
+                    PartnerPanelAdmin.bot_id == BOT_ID,
+                    PartnerPanelAdmin.tg_id == tg_id,
+                )
+            )
+            await session.commit()
+            if (result.rowcount or 0) == 0:
+                return False, "Администратор с таким tg_id не найден."
+        return True, "OK"
+
+    async def format_panel_admin_line(self, tg_id: int) -> str:
+        user = await self.get_user_object_by_user_id(tg_id)
+        if user:
+            profile = parse_user_profile(user.field_str_2)
+            username = profile.get("username")
+            if username:
+                return f"• <code>{tg_id}</code> (@{username})"
+        return f"• <code>{tg_id}</code>"
 
     async def update_bot_settings(self, **kwargs) -> None:
         async with self.session_factory() as session:

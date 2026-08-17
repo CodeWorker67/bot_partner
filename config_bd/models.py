@@ -57,6 +57,17 @@ class PartnerBotSettings(Base):
     bot_username = Column(String(255), nullable=True)
     bot_display_name = Column(String(255), nullable=True)
     source_bot_id = Column(BigInteger, nullable=True)
+    partner_bot_creation_enabled = Column(Boolean, default=True)
+
+
+class PartnerPanelAdmin(Base):
+    __tablename__ = "partner_panel_admins"
+    __table_args__ = (UniqueConstraint("bot_id", "tg_id", name="uq_panel_admin_bot"),)
+
+    id = Column(Integer, primary_key=True)
+    bot_id = Column(Integer, nullable=False, default=BOT_ID)
+    tg_id = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
 
 
 class Users(Base):
@@ -209,9 +220,18 @@ async def _migrate_schema():
             ("bot_username", "VARCHAR(255)"),
             ("bot_display_name", "VARCHAR(255)"),
             ("source_bot_id", "BIGINT"),
+            ("partner_bot_creation_enabled", "BOOLEAN DEFAULT TRUE"),
         ):
             if name not in settings_cols:
                 await conn.execute(text(f"ALTER TABLE partner_bot_settings ADD COLUMN {name} {col_type}"))
+                settings_cols.add(name)
+        if "partner_bot_creation_enabled" in settings_cols:
+            await conn.execute(
+                text(
+                    "UPDATE partner_bot_settings SET partner_bot_creation_enabled = 1 "
+                    "WHERE partner_bot_creation_enabled IS NULL"
+                )
+            )
 
 
 async def _ensure_bot_settings():

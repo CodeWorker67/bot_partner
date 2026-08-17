@@ -11,13 +11,15 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Chat, Message, MessageOriginChannel
 
 from bot import bot, sql
-from config import OWNER_TG_IDS, PARTNER_MIN_WITHDRAW, PARTNER_SUPPORT_URL, TARIFF_KEYS, TRIAL_DAYS_MAX, TRIAL_DAYS_MIN, DEFAULT_PRICES
+from config import PARTNER_MIN_WITHDRAW, PARTNER_SUPPORT_URL, TARIFF_KEYS, TRIAL_DAYS_MAX, TRIAL_DAYS_MIN, DEFAULT_PRICES
 from config_bd.partner_sql import parse_user_profile, pro_subscription_end_active, user_has_active_pro_subscription
 from keyboard import (
     BTN_BACK,
     create_kb,
+    keyboard_owner_admins,
     keyboard_owner_balance,
     keyboard_owner_channel,
+    keyboard_owner_create_bot,
     keyboard_owner_main,
     keyboard_owner_prices,
     keyboard_owner_users,
@@ -136,13 +138,25 @@ class OwnerFSM(StatesGroup):
     price_value = State()
     trial_days = State()
     owner_user_search = State()
+    admin_add = State()
+    admin_remove = State()
+
+
+def _parse_admin_tg_id(raw: str) -> int | None:
+    cleaned = (raw or "").strip().replace(" ", "")
+    if not cleaned.isdigit():
+        return None
+    tg_id = int(cleaned)
+    if tg_id <= 0:
+        return None
+    return tg_id
 
 
 def _owner_only(handler):
     @functools.wraps(handler)
     async def wrapper(event, *args, **kwargs):
         uid = event.from_user.id
-        if uid not in OWNER_TG_IDS:
+        if not await sql.can_access_partner_panel(uid):
             if isinstance(event, CallbackQuery):
                 await event.answer("Нет доступа", show_alert=True)
             return
@@ -655,6 +669,128 @@ async def owner_price_value(message: Message, state: FSMContext):
 
     notice = f"✅ {label}: {price} ₽\n\n"
     await _show_owner_prices(message, state, notice=notice)
+
+
+def _owner_create_bot_text(enabled: bool) -> str:
+    status = lexicon["owner_create_bot_on"] if enabled else lexicon["owner_create_bot_off"]
+    hint = lexicon["owner_create_bot_hint_on"] if enabled else lexicon["owner_create_bot_hint_off"]
+    return lexicon["owner_create_bot"].format(status=status, hint=hint)
+
+
+async def _send_owner_create_bot(callback: CallbackQuery) -> None:
+    enabled = await sql.is_partner_bot_creation_enabled()
+    await callback.message.edit_text(
+        _owner_create_bot_text(enabled),
+        reply_markup=keyboard_owner_create_bot(enabled=enabled),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "owner_create_bot")
+@_owner_only
+async def owner_create_bot(callback: CallbackQuery):
+    await _send_owner_create_bot(callback)
+
+
+@router.callback_query(F.data == "owner_create_bot_on")
+@_owner_only
+async def owner_create_bot_on(callback: CallbackQuery):
+    await sql.update_bot_settings(partner_bot_creation_enabled=True)
+    await _send_owner_create_bot(callback)
+
+
+@router.callback_query(F.data == "owner_create_bot_off")
+@_owner_only
+async def owner_create_bot_off(callback: CallbackQuery):
+    await sql.update_bot_settings(partner_bot_creation_enabled=False)
+    await _send_owner_create_bot(callback)
+
+
+async def _owner_admins_list_text() -> str:
+    admin_ids = await sql.list_panel_admins()
+    if admin_ids:
+        lines = [await sql.format_panel_admin_line(tg_id) for tg_id in admin_ids]
+        admin_list = "\n".join(lines)
+    else:
+        admin_list = lexicon["owner_admins_empty"]
+    return lexicon["owner_admins_intro"].format(list=admin_list)
+
+
+async def _send_owner_admins(target: Message | CallbackQuery, *, notice: str = "") -> None:
+    text = notice + await _owner_admins_list_text()
+    kb = keyboard_owner_admins()
+    if isinstance(target, CallbackQuery):
+        await target.message.edit_text(text, reply_markup=kb)
+        await target.answer()
+    else:
+        await target.answer(text, reply_markup=kb)
+
+
+@router.callback_query(F.data == "owner_admins")
+@_owner_only
+async def owner_admins(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await _send_owner_admins(callback)
+
+
+@router.callback_query(F.data == "owner_admin_add")
+@_owner_only
+async def owner_admin_add_start(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(OwnerFSM.admin_add)
+    await callback.message.edit_text(
+        lexicon["owner_admin_add_prompt"],
+        reply_markup=create_kb(1, owner_admins="❌ Отмена"),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "owner_admin_remove")
+@_owner_only
+async def owner_admin_remove_start(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(OwnerFSM.admin_remove)
+    await callback.message.edit_text(
+        lexicon["owner_admin_remove_prompt"],
+        reply_markup=create_kb(1, owner_admins="❌ Отмена"),
+    )
+    await callback.answer()
+
+
+@router.message(OwnerFSM.admin_add)
+@_owner_only
+async def owner_admin_add_save(message: Message, state: FSMContext):
+    if message.text == "❌ Отмена":
+        await state.clear()
+        await _send_owner_admins(message)
+        return
+    tg_id = _parse_admin_tg_id(message.text or "")
+    if tg_id is None:
+        await message.answer("❌ Введите корректный tg_id (целое положительное число).")
+        return
+    ok, err = await sql.add_panel_admin(tg_id)
+    await state.clear()
+    if not ok:
+        await _send_owner_admins(message, notice=f"❌ {err}\n\n")
+        return
+    await _send_owner_admins(message, notice=lexicon["owner_admin_added"].format(tg_id) + "\n\n")
+
+
+@router.message(OwnerFSM.admin_remove)
+@_owner_only
+async def owner_admin_remove_save(message: Message, state: FSMContext):
+    if message.text == "❌ Отмена":
+        await state.clear()
+        await _send_owner_admins(message)
+        return
+    tg_id = _parse_admin_tg_id(message.text or "")
+    if tg_id is None:
+        await message.answer("❌ Введите корректный tg_id (целое положительное число).")
+        return
+    ok, err = await sql.remove_panel_admin(tg_id)
+    await state.clear()
+    if not ok:
+        await _send_owner_admins(message, notice=f"❌ {err}\n\n")
+        return
+    await _send_owner_admins(message, notice=lexicon["owner_admin_removed"].format(tg_id) + "\n\n")
 
 
 @router.callback_query(F.data == "owner_trial")
