@@ -23,6 +23,7 @@ from config_bd.models import (
     PaymentsFkSBP,
     PaymentsStars,
     Users,
+    WlTrafficMeta,
 )
 from logging_config import logger
 from tariff_resolve import tariff_days_for_x3
@@ -1059,4 +1060,198 @@ class PartnerSQL:
         self, users_panel: int, users_active: int, users_pay: int, users_trial: int
     ) -> None:
         await self.save_online_stats(users_panel, users_active, users_pay, users_trial)
+
+    # --- WL traffic (Антиглушилка) ---
+
+    async def init_wl_trial_limits(self, user_id: int) -> None:
+        from wl_traffic.constants import WL_TRIAL_LIMIT_GB
+
+        async with self.session_factory() as session:
+            stmt = (
+                update(Users)
+                .where(
+                    _user_filter(user_id),
+                    or_(Users.limit_wl.is_(None), Users.limit_wl <= 0),
+                )
+                .values(trafic_wl=0.0, limit_wl=WL_TRIAL_LIMIT_GB)
+            )
+            await session.execute(stmt)
+            await session.commit()
+
+    async def add_wl_limit(self, user_id: int, gb: float) -> None:
+        async with self.session_factory() as session:
+            user = (
+                await session.execute(select(Users).where(_user_filter(user_id)))
+            ).scalar_one_or_none()
+            if user is None:
+                return
+            current = float(user.limit_wl or 0.0)
+            user.limit_wl = round(current + gb, 2)
+            if gb > 0:
+                user.field_bool_2 = False
+            await session.commit()
+
+    async def add_trafic_wl(self, user_id: int, gb: float) -> None:
+        if gb <= 0:
+            return
+        async with self.session_factory() as session:
+            user = (
+                await session.execute(select(Users).where(_user_filter(user_id)))
+            ).scalar_one_or_none()
+            if user is None:
+                return
+            current = float(user.trafic_wl or 0.0)
+            user.trafic_wl = round(current + gb, 2)
+            await session.commit()
+
+    async def get_wl_limits(self, user_id: int) -> tuple[float, float]:
+        async with self.session_factory() as session:
+            row = (
+                await session.execute(
+                    select(Users.trafic_wl, Users.limit_wl).where(_user_filter(user_id))
+                )
+            ).one_or_none()
+            if row is None:
+                return 0.0, 0.0
+            return float(row[0] or 0.0), float(row[1] or 0.0)
+
+    async def get_wl_traffic_last_closed_date(self) -> Optional[date]:
+        async with self.session_factory() as session:
+            return (
+                await session.execute(
+                    select(WlTrafficMeta.last_closed_date).where(WlTrafficMeta.id == 1)
+                )
+            ).scalar_one_or_none()
+
+    async def set_wl_traffic_last_closed_date(self, day: date) -> None:
+        async with self.session_factory() as session:
+            row = (
+                await session.execute(select(WlTrafficMeta).where(WlTrafficMeta.id == 1))
+            ).scalar_one_or_none()
+            if row is None:
+                session.add(WlTrafficMeta(id=1, last_closed_date=day))
+            else:
+                row.last_closed_date = day
+            await session.commit()
+
+    async def select_users_active_subscription(self) -> List[Tuple[int, float, float, bool]]:
+        from wl_traffic.constants import WL_TIMEZONE
+
+        today_start = (
+            datetime.now(WL_TIMEZONE)
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .replace(tzinfo=None)
+        )
+        active_pro = or_(
+            and_(Users.subscription_end_date.isnot(None), Users.subscription_end_date >= today_start),
+            and_(Users.subscription_3_end_date.isnot(None), Users.subscription_3_end_date >= today_start),
+            and_(Users.subscription_10_end_date.isnot(None), Users.subscription_10_end_date >= today_start),
+        )
+        async with self.session_factory() as session:
+            stmt = select(
+                Users.user_id,
+                Users.trafic_wl,
+                Users.limit_wl,
+                Users.field_bool_2,
+            ).where(
+                Users.bot_id == BOT_ID,
+                Users.is_delete == False,
+                Users.in_panel == True,
+                active_pro,
+            )
+            result = await session.execute(stmt)
+            return [
+                (int(r[0]), float(r[1] or 0.0), float(r[2] or 0.0), bool(r[3]))
+                for r in result.all()
+            ]
+
+    async def update_field_bool_2(self, user_id: int, value: bool) -> None:
+        async with self.session_factory() as session:
+            await session.execute(
+                update(Users).where(_user_filter(user_id)).values(field_bool_2=value)
+            )
+            await session.commit()
+
+    async def reset_field_bool_2_all(self) -> int:
+        async with self.session_factory() as session:
+            result = await session.execute(
+                update(Users).where(Users.bot_id == BOT_ID).values(field_bool_2=False)
+            )
+            await session.commit()
+            return int(result.rowcount or 0)
+
+    async def get_user_subscription_payment_report(
+        self, user_id: int,
+    ) -> List[Tuple[datetime, str, str]]:
+        """Успешные платежи пользователя: (time_created, тип, дни)."""
+        rows_acc: List[Tuple[datetime, str, str]] = []
+
+        def _parse_map(payload: Optional[str]) -> Dict[str, str]:
+            if not payload:
+                return {}
+            out: Dict[str, str] = {}
+            for part in payload.split(","):
+                if ":" not in part:
+                    continue
+                k, _, v = part.partition(":")
+                out[k.strip()] = v.strip()
+            return out
+
+        def _device_label(m: Dict[str, str]) -> str:
+            raw = m.get("device")
+            try:
+                n = int(raw) if raw is not None else 5
+            except (TypeError, ValueError):
+                n = 5
+            if n == 3:
+                return "3 устройства"
+            if n == 10:
+                return "10 устройств"
+            return "5 устройств"
+
+        def _row_kind(payload: Optional[str], is_gift: bool) -> Tuple[str, str]:
+            m = _parse_map(payload)
+            dur = m.get("duration", "0")
+            if dur.startswith("traffic"):
+                return f"Трафик {dur.replace('traffic', '')} GB", "—"
+            if is_gift:
+                return f"Подарок · {_device_label(m)}", dur
+            return _device_label(m), dur
+
+        async with self.session_factory() as session:
+            fk = await session.execute(
+                select(PaymentsFkSBP.time_created, PaymentsFkSBP.payload, PaymentsFkSBP.is_gift).where(
+                    PaymentsFkSBP.bot_id == BOT_ID,
+                    PaymentsFkSBP.user_id == user_id,
+                    PaymentsFkSBP.status == "confirmed",
+                )
+            )
+            for tc, payload, is_gift in fk.all():
+                kind, days_s = _row_kind(payload, bool(is_gift))
+                rows_acc.append((tc, kind, days_s))
+
+            st = await session.execute(
+                select(PaymentsStars.time_created, PaymentsStars.payload, PaymentsStars.is_gift).where(
+                    PaymentsStars.bot_id == BOT_ID,
+                    PaymentsStars.user_id == user_id,
+                    PaymentsStars.status == "confirmed",
+                )
+            )
+            for tc, payload, is_gift in st.all():
+                kind, days_s = _row_kind(payload, bool(is_gift))
+                rows_acc.append((tc, kind, days_s))
+
+            cr = await session.execute(
+                select(PaymentsCryptobot.time_created, PaymentsCryptobot.payload, PaymentsCryptobot.is_gift).where(
+                    PaymentsCryptobot.bot_id == BOT_ID,
+                    PaymentsCryptobot.user_id == user_id,
+                    PaymentsCryptobot.status == "paid",
+                )
+            )
+            for tc, payload, is_gift in cr.all():
+                kind, days_s = _row_kind(payload, bool(is_gift))
+                rows_acc.append((tc, kind, days_s))
+
+        rows_acc.sort(key=lambda x: x[0] or datetime.min)
+        return rows_acc
 

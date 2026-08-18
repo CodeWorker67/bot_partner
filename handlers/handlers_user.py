@@ -171,6 +171,8 @@ async def _activate_gift(message: Message, gift_id: str):
         await post_user_trial(tg_id)
     result = await x3.activ(user_id_str)
     sub_time = result.get("time", "-")
+    from wl_traffic.service import apply_wl_subscription_bonus
+    await apply_wl_subscription_bonus(sql, x3, tg_id, int(days))
     await message.answer(
         lexicon["gift_activated"].format(sub_time),
         reply_markup=keyboard_sub_after_buy(result.get("url", "")),
@@ -264,6 +266,7 @@ async def trial_vpn_cb(callback: CallbackQuery):
         return
     await sql.update_in_panel(tg_id)
     await sql.set_field_bool_3(tg_id, True)
+    await sql.init_wl_trial_limits(tg_id)
     await post_user_trial(tg_id)
     result = await x3.activ(user_id_str)
     await callback.message.edit_text(

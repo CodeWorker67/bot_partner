@@ -4,6 +4,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from bot import bot, sql, x3
 from config import (
     BOT_ID,
+    CHECKER_ID,
     DEPLOYED_BOT_PROCENT,
     LEAD_TRACKER_STAR_RUB_PER_STAR,
     OWNER_TG_IDS,
@@ -18,6 +19,13 @@ from lead_tracker import post_payment_success, post_user_trial
 from lexicon import lexicon
 from logging_config import logger
 from tariff_resolve import panel_username
+from wl_traffic.service import (
+    credit_wl_subscription_bonus,
+    get_wl_used_gb_for_user,
+    parse_traffic_duration,
+    restore_pro_squads_if_under_limit,
+)
+from wl_traffic.texts import format_wl_checker_traffic_purchase
 
 
 def _payment_rub(method: str, amount: int | float) -> int:
@@ -86,7 +94,6 @@ async def _distribute_commissions(payer_uid: int, method: str, amount: int | flo
         except ValueError:
             pass
 
-    # С партнёрской или реферальной ссылкой владелец бота получает 20%, иначе 50%
     has_partner_or_ref_link = bool(ref_id_str or partner_str)
     owner_share = PARTNER_SHARE_REF if has_partner_or_ref_link else PARTNER_SHARE_DEFAULT
     owner_commission = rub * owner_share // 100
@@ -111,12 +118,47 @@ async def _distribute_commissions(payer_uid: int, method: str, amount: int | flo
             )
 
 
+async def _process_traffic_topup(user_id: int, gb: int, method: str, amount: int | float) -> bool:
+    await sql.add_wl_limit(user_id, float(gb))
+
+    trafic_wl, limit_wl = await sql.get_wl_limits(user_id)
+    used_gb = await get_wl_used_gb_for_user(x3, user_id, trafic_wl)
+    await restore_pro_squads_if_under_limit(x3, user_id, used_gb, limit_wl)
+
+    await post_payment_success(user_id, method, amount)
+    await _distribute_commissions(user_id, method, amount)
+    await _credit_partner_commission(user_id, method, amount)
+
+    if CHECKER_ID is not None:
+        try:
+            await bot.send_message(
+                chat_id=CHECKER_ID,
+                text=format_wl_checker_traffic_purchase(user_id, gb, used_gb, limit_wl),
+            )
+        except Exception as e:
+            logger.error("CHECKER_ID traffic purchase notify {}: {}", user_id, e)
+
+    try:
+        await bot.send_message(
+            chat_id=user_id,
+            text=lexicon["wl_traffic_success"].format(gb=gb),
+            parse_mode="HTML",
+            reply_markup=create_kb(1, back_to_main=BTN_BACK),
+        )
+    except Exception as e:
+        logger.error("traffic topup notify {}: {}", user_id, e)
+
+    logger.info("Трафик Антиглушилка +{} GB для user={}", gb, user_id)
+    return True
+
+
 async def process_confirmed_payment(payload: str) -> bool:
     """Обработка подтверждённого платежа. True — подписка/подарок применены успешно."""
     try:
         payload_parts = dict(item.split(":") for item in payload.split(","))
         user_id = int(payload_parts.get("user_id", 0))
-        duration = int(payload_parts.get("duration", 0))
+        duration_raw = payload_parts.get("duration", "0")
+        traffic_gb = parse_traffic_duration(str(duration_raw))
         is_gift = payload_parts.get("gift", "False") == "True"
         method = payload_parts.get("method", "")
         if method in ("sbp", "fksbp", "fk_sbp", "fk_card", "stars", "card", "crypto", "cryptobot"):
@@ -131,6 +173,16 @@ async def process_confirmed_payment(payload: str) -> bool:
             device_slots = 5
         if device_slots not in (3, 5, 10):
             device_slots = 5
+
+        if method == "stars" and not is_gift and traffic_gb is None:
+            await sql.add_payment_stars(user_id, amount, is_gift, payload)
+
+        if traffic_gb is not None:
+            if method == "stars":
+                await sql.add_payment_stars(user_id, amount, False, payload)
+            return await _process_traffic_topup(user_id, traffic_gb, method, amount)
+
+        duration = int(duration_raw)
 
         if method == "stars":
             await sql.add_payment_stars(user_id, amount, is_gift, payload)
@@ -185,6 +237,11 @@ async def process_confirmed_payment(payload: str) -> bool:
         await post_payment_success(user_id, method, amount)
         await _distribute_commissions(user_id, method, amount)
         await _credit_partner_commission(user_id, method, amount)
+
+        await credit_wl_subscription_bonus(sql, user_id, duration)
+        trafic_wl, limit_wl = await sql.get_wl_limits(user_id)
+        used_gb = await get_wl_used_gb_for_user(x3, user_id, trafic_wl)
+        await restore_pro_squads_if_under_limit(x3, user_id, used_gb, limit_wl)
 
         sub_link = result_active.get("url", "-")
         try:

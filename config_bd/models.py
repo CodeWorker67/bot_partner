@@ -96,7 +96,10 @@ class Users(Base):
     subscribtion = Column(String(255), nullable=True)
     subscribtion_3 = Column(String(255), nullable=True)
     subscribtion_10 = Column(String(255), nullable=True)
+    field_bool_2 = Column(Boolean, default=False)
     field_bool_3 = Column(Boolean, default=False)
+    trafic_wl = Column(Float, default=0.0)
+    limit_wl = Column(Float, default=0.0)
     field_str_1 = Column(String(4096), nullable=True)
     field_str_2 = Column(String(4096), nullable=True)
     partner = Column(String(100), nullable=True)
@@ -159,6 +162,12 @@ class PaymentsCryptobot(Base):
     payload = Column(String, nullable=True)
 
 
+class WlTrafficMeta(Base):
+    __tablename__ = "wl_traffic_meta"
+    id = Column(Integer, primary_key=True)
+    last_closed_date = Column(Date, nullable=True)
+
+
 class Online(Base):
     __tablename__ = "online"
     online_id = Column(Integer, primary_key=True, autoincrement=True)
@@ -187,6 +196,30 @@ async def _migrate_schema():
             await conn.execute(text("ALTER TABLE users ADD COLUMN field_str_1 VARCHAR(4096)"))
         if "field_str_2" not in cols:
             await conn.execute(text("ALTER TABLE users ADD COLUMN field_str_2 VARCHAR(4096)"))
+        for name, col_type in (
+            ("field_bool_2", "BOOLEAN DEFAULT FALSE"),
+            ("trafic_wl", "FLOAT DEFAULT 0"),
+            ("limit_wl", "FLOAT DEFAULT 0"),
+        ):
+            if name not in cols:
+                await conn.execute(text(f"ALTER TABLE users ADD COLUMN {name} {col_type}"))
+        await conn.execute(text("UPDATE users SET trafic_wl = 0 WHERE trafic_wl IS NULL"))
+        await conn.execute(text("UPDATE users SET limit_wl = 0 WHERE limit_wl IS NULL"))
+        await conn.execute(text("UPDATE users SET field_bool_2 = 0 WHERE field_bool_2 IS NULL"))
+
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS wl_traffic_meta (
+                    id INTEGER PRIMARY KEY,
+                    last_closed_date DATE
+                )
+                """
+            )
+        )
+        await conn.execute(
+            text("INSERT OR IGNORE INTO wl_traffic_meta (id, last_closed_date) VALUES (1, NULL)")
+        )
         for name, col_type in (
             ("partner", "VARCHAR(100)"),
             ("partner_balance", "INTEGER DEFAULT 0"),

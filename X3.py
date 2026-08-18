@@ -148,15 +148,14 @@ class X3:
             vless_uuid = str(uuid.uuid1())
 
             if 'white' in user_id_str:
-                squad_1 = ['6b8943e0-dc8b-4323-871c-3b2d017c56c5']
-                squad = squad_1
+                from wl_traffic.constants import WL_SQUAD_ACTIVE
+                squad = [WL_SQUAD_ACTIVE[0]]
                 trafficLimitStrategy = "MONTH"
                 trafficLimitBytes = 80530636800
                 hwidDeviceLimit = 1
             else:
-                squad_1 = ['6b8943e0-dc8b-4323-871c-3b2d017c56c5']
-                squad_2 = ['7d1024ee-e8b2-4f78-aa9b-51eb23b3bac1']
-                squad = random.choice([squad_1, squad_2])
+                from wl_traffic.constants import WL_SQUAD_ACTIVE
+                squad = [random.choice(WL_SQUAD_ACTIVE)]
                 trafficLimitStrategy = "NO_RESET"
                 trafficLimitBytes = 0
                 hwidDeviceLimit = 5 if hwid_device_limit is None else int(hwid_device_limit)
@@ -713,3 +712,85 @@ class X3:
         except Exception as e:
             logger.error(f"Исключение при установке даты для {username}: {e}")
             return False, None
+
+    async def list_nodes(self) -> List[dict]:
+        """GET /api/nodes — список нод панели."""
+        try:
+            session = await self._get_session()
+            async with session.get(
+                f"{self.target_url}/api/nodes",
+                params=self.params,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as response:
+                if response.status != 200:
+                    err = (await response.text())[:300]
+                    logger.warning(f"list_nodes: HTTP {response.status}: {err}")
+                    return []
+                data = await response.json()
+                resp = data.get("response") or data
+                if isinstance(resp, list):
+                    return resp
+                if isinstance(resp, dict):
+                    return resp.get("nodes") or []
+                return []
+        except Exception as e:
+            logger.error(f"list_nodes: {e}")
+            return []
+
+    async def get_node_uuid_by_name(self, node_name: str) -> Optional[str]:
+        cache: Dict[str, str] = getattr(self, "_node_uuid_by_name", {})
+        if node_name in cache:
+            return cache[node_name]
+
+        for node in await self.list_nodes():
+            name = node.get("name") or node.get("nodeName") or ""
+            if name != node_name:
+                continue
+            node_uuid = node.get("uuid") or node.get("nodeUuid")
+            if node_uuid:
+                cache[node_name] = str(node_uuid)
+                self._node_uuid_by_name = cache
+                return cache[node_name]
+
+        logger.warning(f"get_node_uuid_by_name: нода «{node_name}» не найдена")
+        return None
+
+    async def get_node_users_bandwidth_legacy(
+        self, node_uuid: str, start: str, end: str,
+    ) -> Optional[List[dict]]:
+        params = {**self.params, "start": start, "end": end}
+        urls = (
+            f"{self.target_url}/api/bandwidth-stats/nodes/{node_uuid}/users/legacy",
+            f"{self.target_url}/api/nodes/usage/{node_uuid}/users/range",
+        )
+        try:
+            session = await self._get_session()
+            for url in urls:
+                async with session.get(
+                    url,
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=120),
+                ) as response:
+                    if response.status == 404:
+                        continue
+                    if response.status != 200:
+                        err = (await response.text())[:300]
+                        logger.warning(
+                            f"node users bandwidth {node_uuid}: HTTP {response.status}: {err}"
+                        )
+                        continue
+                    try:
+                        data = await response.json()
+                    except (aiohttp.ContentTypeError, ValueError):
+                        continue
+                    resp = data.get("response") or data
+                    if isinstance(resp, list):
+                        return resp
+            logger.error(
+                f"node users bandwidth {node_uuid}: ни один legacy-эндпoинт не вернул данные"
+            )
+            return None
+        except Exception as e:
+            logger.error(f"node users bandwidth {node_uuid}: {e}")
+            return None
+
