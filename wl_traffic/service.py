@@ -16,6 +16,7 @@ from wl_traffic.constants import (
     WL_LEGACY_RETRIES,
     WL_LOW_TRAFFIC_WARNING_GB,
     WL_NODE_NAME,
+    WL_TOP_USERS_LIMIT,
     WL_SQUAD_ACTIVE,
     WL_SQUAD_LIMITED,
     WL_SUBSCRIPTION_MONTHS,
@@ -193,7 +194,7 @@ def aggregate_bandwidth_by_user_uuid(records: list[dict]) -> dict[str, float]:
     for item in records:
         if not isinstance(item, dict):
             continue
-        user_uuid = str(item.get("userUuid") or item.get("uuid") or "")
+        user_uuid = str(item.get("userId") or item.get("userUuid") or "")
         if not user_uuid:
             continue
         totals[user_uuid] = totals.get(user_uuid, 0.0) + float(item.get("total") or 0)
@@ -214,7 +215,9 @@ async def fetch_wl_traffic_gb_for_day(
         return {}, {}
 
     for attempt in range(max(1, retries)):
-        records = await x3.get_node_users_bandwidth_legacy(node_uuid, day_str, day_str)
+        records = await x3.get_node_users_bandwidth_legacy(
+            node_uuid, day_str, day_str, top_users_limit=WL_TOP_USERS_LIMIT,
+        )
         if records:
             filtered = filter_records_for_day(records, day)
             by_username = {
@@ -235,9 +238,12 @@ def wl_traffic_gb_for_panel_user(
     traffic_by_username: dict[str, float],
     traffic_by_uuid: dict[str, float],
 ) -> float:
-    user_uuid = str(panel_user.get("uuid") or "")
-    if user_uuid and user_uuid in traffic_by_uuid:
-        return traffic_by_uuid[user_uuid]
+    """Расход за WL-день из bulk-мапы: сначала по id панели, затем по username."""
+    panel_user_id = panel_user.get("id")
+    if panel_user_id is not None:
+        key = str(panel_user_id)
+        if key in traffic_by_uuid:
+            return traffic_by_uuid[key]
 
     uname = str(panel_user.get("username") or "")
     if uname and uname in traffic_by_username:
@@ -308,11 +314,11 @@ async def get_wl_used_gb_for_user(
 
 
 async def reassign_squad(x3, panel_user: dict, pool: tuple[str, ...]) -> bool:
-    uuid = panel_user.get("uuid")
-    if not uuid:
+    panel_user_id = x3._panel_user_id(panel_user)
+    if panel_user_id is None:
         return False
     squad = [random.choice(pool)]
-    return await x3.update_user_squads(str(uuid), squad)
+    return await x3.update_user_squads(panel_user_id, squad)
 
 
 async def reassign_to_active_squad(x3, panel_user: dict) -> bool:

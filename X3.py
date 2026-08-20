@@ -233,14 +233,15 @@ class X3:
                 logger.error(f"❌ Пользователь {user_id_str} не найден")
                 return False
 
-            user = user_response['response']
-            
-            # Проверяем обязательные поля
-            if 'uuid' not in user or 'expireAt' not in user:
-                logger.error(f"❌ У пользователя {user_id_str} отсутствуют обязательные поля")
+            user = self._panel_user_from_response(user_response)
+            if not user:
+                logger.error(f"❌ Пользователь {user_id_str} не найден")
                 return False
 
-            uuid_user = user['uuid']
+            panel_user_id = self._panel_user_id(user)
+            if panel_user_id is None or 'expireAt' not in user:
+                logger.error(f"❌ У пользователя {user_id_str} отсутствуют обязательные поля (id/expireAt)")
+                return False
             
             # Парсим текущую дату истечения
             expire_at_str = user['expireAt']
@@ -270,7 +271,7 @@ class X3:
 
             # Формируем данные для обновления
             data = {
-                "uuid": uuid_user,
+                "id": panel_user_id,
                 "status": status,
                 "expireAt": new_expire_at.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
                 "trafficLimitBytes": user.get('trafficLimitBytes', 0),
@@ -392,6 +393,19 @@ class X3:
         return raw[0] if isinstance(raw, list) else raw
 
     @staticmethod
+    def _panel_user_id(user: Optional[dict]) -> Optional[int]:
+        """Числовой id пользователя в панели (Remnawave больше не отдаёт uuid)."""
+        if not user:
+            return None
+        pid = user.get('id')
+        if pid is None:
+            return None
+        try:
+            return int(pid)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
     def _panel_user_is_active(user: dict) -> bool:
         expiry_time_str = user.get('expireAt')
         if not expiry_time_str:
@@ -427,7 +441,7 @@ class X3:
     async def active_subscription_slots(
         self, telegram_id: int,
     ) -> List[Tuple[str, str, str, str]]:
-        """Активные подписки: (ключ слота, подпись, uuid в панели, username)."""
+        """Активные подписки: (ключ слота, подпись, id в панели, username)."""
         out: List[Tuple[str, str, str, str]] = []
         for slot_key, suffix, label in self.SUBSCRIPTION_SLOTS:
             username = f"{telegram_id}{suffix}"
@@ -435,29 +449,29 @@ class X3:
             user = self._panel_user_from_response(users)
             if not user or not self._panel_user_is_active(user):
                 continue
-            user_uuid = user.get('uuid')
-            if not user_uuid:
+            panel_user_id = self._panel_user_id(user)
+            if panel_user_id is None:
                 continue
-            out.append((slot_key, label, user_uuid, username))
+            out.append((slot_key, label, str(panel_user_id), username))
         return out
 
-    async def get_user_hwid_devices(self, user_uuid: str) -> Tuple[List[Dict[str, Any]], int]:
+    async def get_user_hwid_devices(self, panel_user_id: str) -> Tuple[List[Dict[str, Any]], int]:
         """Список HWID-устройств пользователя и их количество."""
         try:
             session = await self._get_session()
             async with session.get(
-                f"{self.target_url}/api/hwid/devices/{user_uuid}",
+                f"{self.target_url}/api/hwid/devices/{panel_user_id}",
                 params=self.params,
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 if resp.status != 200:
                     logger.error(
-                        f"get_user_hwid_devices {user_uuid}: HTTP {resp.status} — {await resp.text()}"
+                        f"get_user_hwid_devices {panel_user_id}: HTTP {resp.status} — {await resp.text()}"
                     )
                     return [], 0
                 data = await resp.json()
         except Exception as e:
-            logger.error(f"get_user_hwid_devices {user_uuid}: {e}")
+            logger.error(f"get_user_hwid_devices {panel_user_id}: {e}")
             return [], 0
 
         response = data.get('response') if isinstance(data, dict) else None
@@ -472,19 +486,19 @@ class X3:
             total = 0
         return devices, int(total)
 
-    async def delete_user_hwid_device(self, user_uuid: str, hwid: str) -> bool:
+    async def delete_user_hwid_device(self, panel_user_id: str, hwid: str) -> bool:
         """Удаляет одно HWID-устройство пользователя."""
         try:
             session = await self._get_session()
             async with session.post(
                 f"{self.target_url}/api/hwid/devices/delete",
-                json={"userUuid": user_uuid, "hwid": hwid},
+                json={"userId": int(panel_user_id), "hwid": hwid},
                 params=self.params,
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 if resp.status != 200:
                     logger.error(
-                        f"delete_user_hwid_device {user_uuid}: HTTP {resp.status} — {await resp.text()}"
+                        f"delete_user_hwid_device {panel_user_id}: HTTP {resp.status} — {await resp.text()}"
                     )
                     return False
                 data = await resp.json()
@@ -493,7 +507,7 @@ class X3:
                     return False
                 return True
         except Exception as e:
-            logger.error(f"delete_user_hwid_device {user_uuid}: {e}")
+            logger.error(f"delete_user_hwid_device {panel_user_id}: {e}")
             return False
 
     async def activ(self, user_id: str):
@@ -574,16 +588,16 @@ class X3:
             logger.error(f"Ошибка при получении всех пользователей: {e}")
         return users_all
 
-    async def update_user_squads(self, user_uuid: str, squads: list):
+    async def update_user_squads(self, panel_user_id: int, squads: list):
         """
-        Обновляет поле activeInternalSquads у пользователя по его UUID.
-        :param user_uuid: UUID пользователя в панели
+        Обновляет поле activeInternalSquads у пользователя по id в панели.
+        :param panel_user_id: числовой id пользователя в панели
         :param squads: список squad UUID (например, ['2fcfd928-6f45-4a8c-a36b-742fca8efea0'])
         :return: True при успехе, False при ошибке
         """
         try:
             data = {
-                "uuid": user_uuid,
+                "id": int(panel_user_id),
                 "activeInternalSquads": squads
             }
             session = await self._get_session()
@@ -598,11 +612,11 @@ class X3:
                         response_data = await response.json()
                     except (aiohttp.ClientConnectionError, aiohttp.ContentTypeError, ValueError) as e:
                         logger.warning(
-                            f"Не удалось прочитать JSON при обновлении squads для UUID {user_uuid}: {e}. Считаем успехом.")
+                            f"Не удалось прочитать JSON при обновлении squads для id {panel_user_id}: {e}. Считаем успехом.")
                         return True
                     else:
                         if response_data.get("success", True):
-                            logger.info(f"✅ Squad обновлён для UUID {user_uuid}")
+                            logger.info(f"✅ Squad обновлён для id {panel_user_id}")
                             return True
                         else:
                             logger.error(f"❌ API вернул ошибку: {response_data}")
@@ -665,8 +679,11 @@ class X3:
                 logger.error(f"Не удалось получить данные созданного пользователя {username}")
                 return False, None
 
-        user = user_data['response']
-        uuid_user = user['uuid']
+        user = self._panel_user_from_response(user_data)
+        panel_user_id = self._panel_user_id(user)
+        if not user or panel_user_id is None:
+            logger.error(f"Некорректный ответ панели для {username}")
+            return False, None
 
         # Формируем данные для обновления (сохраняем остальные поля)
         traffic_limit_bytes = user.get('trafficLimitBytes', 0)
@@ -676,7 +693,7 @@ class X3:
         squads = [s['uuid'] if isinstance(s, dict) else s for s in raw_squads]
 
         data = {
-            "uuid": uuid_user,
+            "id": panel_user_id,
             "expireAt": effective_date.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
             "status": status,
             "trafficLimitBytes": traffic_limit_bytes,
@@ -755,41 +772,67 @@ class X3:
         logger.warning(f"get_node_uuid_by_name: нода «{node_name}» не найдена")
         return None
 
+    @staticmethod
+    def _bandwidth_users_records_from_response(data: dict) -> Optional[List[dict]]:
+        resp = data.get("response") or data
+        if isinstance(resp, list):
+            return resp
+        if isinstance(resp, dict):
+            top_users = resp.get("topUsers")
+            if isinstance(top_users, list):
+                return top_users
+            series = resp.get("series")
+            if isinstance(series, list):
+                return series
+        return None
+
     async def get_node_users_bandwidth_legacy(
-        self, node_uuid: str, start: str, end: str,
+        self,
+        node_uuid: str,
+        start: str,
+        end: str,
+        *,
+        top_users_limit: int = 5000,
     ) -> Optional[List[dict]]:
-        params = {**self.params, "start": start, "end": end}
-        urls = (
-            f"{self.target_url}/api/bandwidth-stats/nodes/{node_uuid}/users/legacy",
-            f"{self.target_url}/api/nodes/usage/{node_uuid}/users/range",
-        )
+        """
+        Bulk-трафик пользователей на ноде за период.
+        GET /api/bandwidth-stats/nodes/{nodeUuid}/users → response.topUsers.
+        """
+        params = {
+            **self.params,
+            "start": start,
+            "end": end,
+            "topUsersLimit": str(top_users_limit),
+        }
+        url = f"{self.target_url}/api/bandwidth-stats/nodes/{node_uuid}/users"
         try:
             session = await self._get_session()
-            for url in urls:
-                async with session.get(
-                    url,
-                    params=params,
-                    timeout=aiohttp.ClientTimeout(total=120),
-                ) as response:
-                    if response.status == 404:
-                        continue
-                    if response.status != 200:
-                        err = (await response.text())[:300]
-                        logger.warning(
-                            f"node users bandwidth {node_uuid}: HTTP {response.status}: {err}"
-                        )
-                        continue
-                    try:
-                        data = await response.json()
-                    except (aiohttp.ContentTypeError, ValueError):
-                        continue
-                    resp = data.get("response") or data
-                    if isinstance(resp, list):
-                        return resp
-            logger.error(
-                f"node users bandwidth {node_uuid}: ни один legacy-эндпoинт не вернул данные"
-            )
-            return None
+            async with session.get(
+                url,
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=120),
+            ) as response:
+                if response.status != 200:
+                    err = (await response.text())[:300]
+                    logger.error(
+                        f"node users bandwidth {node_uuid}: HTTP {response.status}: {err}"
+                    )
+                    return None
+                try:
+                    data = await response.json()
+                except (aiohttp.ContentTypeError, ValueError):
+                    logger.error(f"node users bandwidth {node_uuid}: не удалось прочитать JSON")
+                    return None
+                records = self._bandwidth_users_records_from_response(data)
+                if not records:
+                    logger.error(
+                        f"node users bandwidth {node_uuid}: ответ без topUsers/series"
+                    )
+                    return None
+                logger.debug(
+                    f"node users bandwidth {node_uuid}: получено {len(records)} записей"
+                )
+                return records
         except Exception as e:
             logger.error(f"node users bandwidth {node_uuid}: {e}")
             return None
