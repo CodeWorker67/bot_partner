@@ -917,23 +917,15 @@ def keyboard_profile() -> InlineKeyboardMarkup:
 
 
 def keyboard_wl_traffic_tariffs(*, back_callback: str = "back_to_main") -> InlineKeyboardMarkup:
-    labels = {
-        "10": "10 GB — 50 ₽",
-        "20": "20 GB — 79 ₽",
-        "50": "50 GB — 149 ₽",
-        "100": "100 GB — 259 ₽",
-        "250": "250 GB — 629 ₽",
-        "500": "500 GB — 1249 ₽",
-    }
     from_sub = back_callback == BUY_VPN_CB
     buttons = []
-    for mb, label in labels.items():
-        cb = f"wl_traffic_sub_{mb}" if from_sub else f"wl_traffic_{mb}"
+    for gb, price in sorted(WL_TRAFFIC_TARIFFS.items(), key=lambda item: int(item[0]), reverse=True):
+        cb = f"wl_traffic_sub_{gb}" if from_sub else f"wl_traffic_{gb}"
         buttons.append([
             InlineKeyboardButton(
-                text=label,
+                text=f"{gb} GB — {price} ₽",
                 callback_data=cb,
-                style=STYLE_SUCCESS if mb in ("50", "100", "250", "500") else STYLE_PRIMARY,
+                style=STYLE_SUCCESS if gb in ("50", "100", "250", "500") else STYLE_PRIMARY,
             )
         ])
     buttons.append([InlineKeyboardButton(text=BTN_BACK, callback_data=back_callback)])
