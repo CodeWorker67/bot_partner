@@ -8,7 +8,7 @@ from bot import bot
 from bot_display import init_bot_display_name
 from config import BOT_ID, OWNER_TG_ID, OWNER_TG_IDS, TG_TOKEN
 from config_bd.models import create_tables, engine
-from handlers import handlers_user, handlers_devices, handlers_owner, handlers_import, handlers_partner_admin, handlers_create_partner_bot, handlers_wl_traffic
+from handlers import handlers_user, handlers_devices, handlers_owner, handlers_import, handlers_partner_admin, handlers_create_partner_bot, handlers_wl_traffic, handlers_start_prize
 from logging_config import logger
 from middleware.user_activity import UserActivityMiddleware
 from payments import pay_cryptobot, pay_freekassa, pay_stars, pay_wl_traffic
@@ -40,6 +40,7 @@ async def main() -> None:
     dp.include_router(handlers_owner.router)
     dp.include_router(handlers_create_partner_bot.router)
     dp.include_router(handlers_partner_admin.router)
+    dp.include_router(handlers_start_prize.router)
     dp.include_router(handlers_user.router)
     dp.include_router(handlers_wl_traffic.router)
     dp.include_router(handlers_import.router)

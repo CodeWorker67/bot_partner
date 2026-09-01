@@ -26,6 +26,7 @@ from lead_tracker import (
     post_user_trial,
     tracker_source_from_ref_and_stamp,
 )
+from handlers.handlers_start_prize import schedule_start_prize
 from logging_config import logger
 from tariff_resolve import device_from_tariff_key, get_prices, panel_username, tariff_days_for_x3, tariff_rub_and_desc
 
@@ -128,6 +129,7 @@ async def process_start_command(message: Message):
             message.from_user.full_name,
             src,
         )
+        schedule_start_prize(message.from_user.id)
 
     blocked, url = await needs_channel_block(message.from_user.id)
     if blocked:
