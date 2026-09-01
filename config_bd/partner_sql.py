@@ -140,6 +140,19 @@ class PartnerSQL:
                 logger.error("add_user {}: {}", user_id, e)
                 return False
 
+    async def delete_from_db(self, user_id: int) -> bool:
+        """Полностью удаляет пользователя этого бота из БД по telegram id."""
+        async with self.session_factory() as session:
+            stmt = select(Users).where(_user_filter(user_id))
+            user = (await session.execute(stmt)).scalar_one_or_none()
+            if not user:
+                logger.warning("User {} not found for deletion (bot_id={})", user_id, BOT_ID)
+                return False
+            await session.delete(user)
+            await session.commit()
+            logger.info("Удалён пользователь {} из БД бота {}", user_id, BOT_ID)
+            return True
+
     async def update_in_panel(self, user_id: int):
         async with self.session_factory() as session:
             await session.execute(update(Users).where(_user_filter(user_id)).values(in_panel=True))

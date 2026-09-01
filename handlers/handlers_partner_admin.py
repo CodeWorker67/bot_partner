@@ -5,7 +5,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 
 from bot import bot, sql, x3
-from config import ADMIN_IDS, BOT_ID
+from config import ADMIN_IDS, BOT_ID, CHECKER_ID
 from keyboard import BTN_BACK, create_kb
 from lexicon import lexicon
 from logging_config import logger
@@ -322,6 +322,57 @@ async def pay_info_command(message: Message):
     )
     body += "\n".join(pay_lines) if pay_lines else "Нет"
     await message.answer(body, parse_mode="HTML")
+
+
+@router.message(Command(commands=["delete"]))
+async def delete_user_command(message: Message):
+    """Удаление пользователя из БД этого бота по Telegram ID. Только CHECKER_ID."""
+    if CHECKER_ID is None or message.from_user.id != CHECKER_ID:
+        return
+
+    try:
+        args = (message.text or "").split()
+        if len(args) < 2:
+            await message.answer("❌ Использование: /delete <telegram_id>\nНапример: /delete 123456789")
+            return
+
+        user_id_to_delete = int(args[1].strip())
+        user_data = await sql.get_user(user_id_to_delete)
+        if not user_data:
+            await message.answer(f"❌ Пользователь с ID {user_id_to_delete} не найден в базе данных.")
+            return
+
+        user_info = {
+            "user_id": user_data[1],
+            "ref": user_data[2],
+            "in_panel": user_data[4],
+        }
+
+        if not await sql.delete_from_db(user_id_to_delete):
+            await message.answer(
+                f"❌ Ошибка при удалении пользователя {user_id_to_delete}.\n"
+                "Возможно, пользователь уже был удалён или произошла ошибка базы данных."
+            )
+            return
+
+        logger.info("CHECKER_ID {} удалил пользователя {} из БД бота {}", CHECKER_ID, user_id_to_delete, BOT_ID)
+        await message.answer(
+            f"✅ Пользователь успешно удалён из базы данных\n\n"
+            f"📋 Информация об удалённом пользователе:\n"
+            f"├ ID: {user_info['user_id']}\n"
+            f"├ Реферер: {user_info['ref'] if user_info['ref'] else 'нет'}\n"
+            f"└ Брал ключ: {'✅ да' if user_info['in_panel'] else '❌ нет'}\n"
+            f"⚠️ Пользователь удалён только из базы данных бота.\n"
+            f"   Подписка в панели управления (X3) остаётся активной."
+        )
+    except ValueError:
+        await message.answer(
+            "❌ Неверный формат Telegram ID.\n"
+            "Используйте только цифры, например: /delete 123456789"
+        )
+    except Exception as e:
+        logger.error("Ошибка в команде /delete: {}", e)
+        await message.answer(f"❌ Произошла ошибка при выполнении команды: {str(e)}")
 
 
 @router.message(Command(commands=["reset_field_bool_2"]))
