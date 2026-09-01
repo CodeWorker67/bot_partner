@@ -1,4 +1,4 @@
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -18,6 +18,12 @@ from wl_traffic.service import (
 )
 
 router = Router()
+
+
+@router.message(F.photo, F.from_user.id.in_(ADMIN_IDS))
+async def get_photo(message: Message):
+    await message.answer(f"<code>{message.photo[-1].file_id}</code>", parse_mode="HTML")
+
 
 PAINT_PROMPTS = [
     ("total_users", "👥 Всего пользователей:"),
