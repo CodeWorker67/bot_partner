@@ -5,7 +5,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 
 from bot import bot, sql, x3
-from config import ADMIN_IDS, BOT_ID, CHECKER_ID
+from config import ADMIN_IDS, BOT_ID
 from keyboard import BTN_BACK, create_kb
 from lexicon import lexicon
 from logging_config import logger
@@ -326,8 +326,8 @@ async def pay_info_command(message: Message):
 
 @router.message(Command(commands=["delete"]))
 async def delete_user_command(message: Message):
-    """Удаление пользователя из БД этого бота по Telegram ID. Только CHECKER_ID."""
-    if CHECKER_ID is None or message.from_user.id != CHECKER_ID:
+    """Удаление пользователя из БД этого бота по Telegram ID. Только ADMIN_IDS."""
+    if message.from_user.id not in ADMIN_IDS:
         return
 
     try:
@@ -355,7 +355,7 @@ async def delete_user_command(message: Message):
             )
             return
 
-        logger.info("CHECKER_ID {} удалил пользователя {} из БД бота {}", CHECKER_ID, user_id_to_delete, BOT_ID)
+        logger.info("Админ {} удалил пользователя {} из БД бота {}", message.from_user.id, user_id_to_delete, BOT_ID)
         await message.answer(
             f"✅ Пользователь успешно удалён из базы данных\n\n"
             f"📋 Информация об удалённом пользователе:\n"
