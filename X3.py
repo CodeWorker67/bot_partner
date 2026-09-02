@@ -588,16 +588,18 @@ class X3:
             logger.error(f"Ошибка при получении всех пользователей: {e}")
         return users_all
 
-    async def update_user_squads(self, panel_user_id: int, squads: list):
+    async def update_user_squads(self, username: str, squads: list):
         """
-        Обновляет поле activeInternalSquads у пользователя по id в панели.
-        :param panel_user_id: числовой id пользователя в панели
+        Обновляет поле activeInternalSquads у пользователя по username в панели.
+        :param username: username пользователя в панели
         :param squads: список squad UUID (например, ['2fcfd928-6f45-4a8c-a36b-742fca8efea0'])
         :return: True при успехе, False при ошибке
         """
+        if not username:
+            return False
         try:
             data = {
-                "id": int(panel_user_id),
+                "username": str(username),
                 "activeInternalSquads": squads
             }
             session = await self._get_session()
@@ -612,11 +614,11 @@ class X3:
                         response_data = await response.json()
                     except (aiohttp.ClientConnectionError, aiohttp.ContentTypeError, ValueError) as e:
                         logger.warning(
-                            f"Не удалось прочитать JSON при обновлении squads для id {panel_user_id}: {e}. Считаем успехом.")
+                            f"Не удалось прочитать JSON при обновлении squads для {username}: {e}. Считаем успехом.")
                         return True
                     else:
                         if response_data.get("success", True):
-                            logger.info(f"✅ Squad обновлён для id {panel_user_id}")
+                            logger.info(f"✅ Squad обновлён для {username}")
                             return True
                         else:
                             logger.error(f"❌ API вернул ошибку: {response_data}")

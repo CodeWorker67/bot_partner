@@ -314,11 +314,11 @@ async def get_wl_used_gb_for_user(
 
 
 async def reassign_squad(x3, panel_user: dict, pool: tuple[str, ...]) -> bool:
-    panel_user_id = x3._panel_user_id(panel_user)
-    if panel_user_id is None:
+    username = str(panel_user.get("username") or "").strip()
+    if not username:
         return False
     squad = [random.choice(pool)]
-    return await x3.update_user_squads(panel_user_id, squad)
+    return await x3.update_user_squads(username, squad)
 
 
 async def reassign_to_active_squad(x3, panel_user: dict) -> bool:
