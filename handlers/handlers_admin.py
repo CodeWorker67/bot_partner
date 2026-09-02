@@ -656,9 +656,10 @@ async def check_online(message: Message):
         random_squad = random.choice([squad_1, squad_2])
         username = user.get('username', '')
         if 'white' not in username and 'cascade-bridge-system' not in username:
+            panel_user_id = x3._panel_user_id(user)
             connect = user.get('firstConnectedAt')
-            if username and connect:
-                if await x3.update_user_squads(username, random_squad):
+            if (panel_user_id is not None or username) and connect:
+                if await x3.update_user_squads(panel_user_id, random_squad, username=username or None):
                     success_count += 1
                 else:
                     fail_count += 1

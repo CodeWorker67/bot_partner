@@ -588,20 +588,9 @@ class X3:
             logger.error(f"Ошибка при получении всех пользователей: {e}")
         return users_all
 
-    async def update_user_squads(self, username: str, squads: list):
-        """
-        Обновляет поле activeInternalSquads у пользователя по username в панели.
-        :param username: username пользователя в панели
-        :param squads: список squad UUID (например, ['2fcfd928-6f45-4a8c-a36b-742fca8efea0'])
-        :return: True при успехе, False при ошибке
-        """
-        if not username:
-            return False
+    async def _patch_user_squads(self, data: dict, label: str, *, log_error: bool = True) -> bool:
+        log = logger.error if log_error else logger.warning
         try:
-            data = {
-                "username": str(username),
-                "activeInternalSquads": squads
-            }
             session = await self._get_session()
             async with session.patch(
                     f"{self.target_url}/api/users",
@@ -614,22 +603,48 @@ class X3:
                         response_data = await response.json()
                     except (aiohttp.ClientConnectionError, aiohttp.ContentTypeError, ValueError) as e:
                         logger.warning(
-                            f"Не удалось прочитать JSON при обновлении squads для {username}: {e}. Считаем успехом.")
+                            f"Не удалось прочитать JSON при обновлении squads ({label}): {e}. Считаем успехом.")
                         return True
-                    else:
-                        if response_data.get("success", True):
-                            logger.info(f"✅ Squad обновлён для {username}")
-                            return True
-                        else:
-                            logger.error(f"❌ API вернул ошибку: {response_data}")
-                            return False
-                else:
-                    error_text = await response.text() if response.content else "No body"
-                    logger.error(f"❌ Ошибка HTTP {response.status}: {error_text}")
+                    if response_data.get("success", True):
+                        logger.info(f"✅ Squad обновлён ({label})")
+                        return True
+                    log(f"❌ API вернул ошибку при обновлении squads ({label}): {response_data}")
                     return False
+                error_text = await response.text() if response.content else "No body"
+                log(f"❌ Ошибка HTTP {response.status} при обновлении squads ({label}): {error_text}")
+                return False
         except Exception as e:
-            logger.error(f"❌ Исключение при обновлении squads: {e}")
+            log(f"❌ Исключение при обновлении squads ({label}): {e}")
             return False
+
+    async def update_user_squads(
+        self,
+        panel_user_id: Optional[int],
+        squads: list,
+        username: Optional[str] = None,
+    ):
+        """
+        Обновляет activeInternalSquads: сначала PATCH по id, при неуспехе — по username.
+        """
+        username = (username or "").strip() or None
+        if panel_user_id is not None:
+            ok = await self._patch_user_squads(
+                {"id": int(panel_user_id), "activeInternalSquads": squads},
+                label=f"id {panel_user_id}",
+                log_error=username is None,
+            )
+            if ok:
+                return True
+            if username:
+                logger.warning(
+                    f"Squad по id {panel_user_id} не обновлён, пробуем username={username}"
+                )
+        if username:
+            return await self._patch_user_squads(
+                {"username": username, "activeInternalSquads": squads},
+                label=f"username {username}",
+            )
+        return False
 
     async def get_all_panel(self):
         """
