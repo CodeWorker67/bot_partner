@@ -19,13 +19,15 @@ from keyboard import (
     keyboard_payment_methods,
     keyboard_ref_dashboard,
     keyboard_sub_after_buy,
-    keyboard_subscription,
+    keyboard_subscription_manage,
 )
 from utils.menu_ui import (
     MAIN_MENU_BUTTON_TEXT,
     edit_or_send_menu,
+    has_any_device_subscription,
     send_menu_message,
     show_main_menu,
+    subscription_manage_caption,
 )
 from lexicon import lexicon, payment_tariff_summary_pro
 from lead_tracker import (
@@ -284,14 +286,15 @@ async def trial_vpn_cb(callback: CallbackQuery):
 @require_channel_sub
 async def connect_vpn_cb(callback: CallbackQuery):
     tg_id = callback.from_user.id
-    links = await x3.active_subscription_links(tg_id, BOT_ID)
-    if not links:
+    user_obj = await sql.get_user_object_by_user_id(tg_id)
+    if not has_any_device_subscription(user_obj):
         await callback.answer(lexicon["no_sub"], show_alert=True)
         return
+    caption = await subscription_manage_caption(callback.from_user, user_obj, tg_id)
     await edit_or_send_menu(
         callback,
-        lexicon["to_sub"],
-        keyboard_subscription(links),
+        caption,
+        keyboard_subscription_manage(),
     )
     await callback.answer()
 

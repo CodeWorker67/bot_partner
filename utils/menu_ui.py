@@ -14,6 +14,7 @@ from aiogram.types import (
     KeyboardButton,
     Message,
     ReplyKeyboardMarkup,
+    User as TgUser,
 )
 
 from bot import bot, sql, x3
@@ -22,7 +23,9 @@ from config_bd.models import Users
 from config_bd.partner_sql import pro_subscription_end_active
 from logging_config import logger
 from tariff_resolve import panel_username
+from lexicon import lexicon
 from utils.custom_emoji import emojify
+from wl_traffic.service import get_wl_used_gb_for_user
 
 MAIN_MENU_REPLY_TEXT = (
     "Кнопка <b>Главное меню</b> внизу — нажмите её, чтобы в любой момент вернуться в главное меню."
@@ -119,6 +122,56 @@ async def profile_caption(fullname: str, user: Optional[Users], uid: int) -> str
             sub_url = await x3.sublink(username)
             if sub_url:
                 lines.append(f"<code>{escape(str(sub_url))}</code>")
+    return "\n".join(lines)
+
+
+def _manage_header(tg_user: TgUser) -> str:
+    if tg_user.username:
+        return f"@ {escape(tg_user.username)}"
+    name = tg_user.full_name or tg_user.first_name or "Пользователь"
+    return escape(name)
+
+
+async def _tier_devices_line(uid: int, slot: str, device_limit: int) -> Optional[str]:
+    username = _username_for_slot(uid, slot)
+    panel_data = await x3.get_user_by_username(username)
+    panel_user = x3._panel_user_from_response(panel_data)
+    if not panel_user:
+        return None
+    panel_id = x3._panel_user_id(panel_user)
+    if panel_id is None:
+        return None
+    hwid_limit = panel_user.get("hwidDeviceLimit")
+    if hwid_limit is None:
+        hwid_limit = device_limit
+    _devices, total = await x3.get_user_hwid_devices(str(panel_id))
+    return f"📱 Устройства: {total} / {hwid_limit}"
+
+
+async def subscription_manage_caption(
+    tg_user: TgUser,
+    user: Optional[Users],
+    uid: int,
+) -> str:
+    lines = [_manage_header(tg_user)]
+    for slot, device_limit, label, attr in PROFILE_TIERS:
+        sub_end = _tier_end(user, attr)
+        status = end_date_status_text(sub_end)
+        lines.append(f"📥 {label}: {status}")
+        if pro_subscription_end_active(sub_end):
+            devices_line = await _tier_devices_line(uid, slot, device_limit)
+            if devices_line:
+                lines.append(devices_line)
+            username = _username_for_slot(uid, slot)
+            sub_url = await x3.sublink(username)
+            if sub_url:
+                lines.append(lexicon["sub_manage_import_label"])
+                lines.append(escape(str(sub_url)))
+
+    trafic_wl, limit_gb = await sql.get_wl_limits(uid)
+    used_gb = await get_wl_used_gb_for_user(x3, uid, trafic_wl)
+    lines.append(f"🕸 Антиглушилка: {used_gb:.2f} / {limit_gb:.2f} GB")
+    lines.append(lexicon["sub_manage_hint"])
     return "\n".join(lines)
 
 

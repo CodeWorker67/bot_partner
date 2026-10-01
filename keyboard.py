@@ -323,34 +323,24 @@ def keyboard_gift_duration(devices: int, prices: dict | None = None) -> InlineKe
     return create_kb(1, styles=_styles_gift_duration(devices), **kwargs)
 
 
-def keyboard_subscription(links: list[tuple[str, str, str]]) -> InlineKeyboardMarkup:
-    """
-    links: (текст кнопки, https-ссылка на подписку, ключ слота). Только по активным слотам из панели.
-    """
-    buttons = []
-    for text, url, _slot in links:
-        if not url:
-            continue
-        buttons.append(
+def keyboard_subscription_manage() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=text[:64],
-                    url=url,
-                    style=STYLE_PRIMARY,
+                    text="Купить трафик",
+                    callback_data=WL_TRAFFIC_BUY_SUB_CB,
                 )
-            ]
-        )
-    buttons.append(
-        [
-            InlineKeyboardButton(
-                text="⚠️ Если страница не загружается",
-                callback_data="import",
-                style=STYLE_DANGER,
-            )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⚠️ Если страница не загружается",
+                    callback_data="import",
+                )
+            ],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")],
         ]
     )
-    buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def keyboard_import_os():
