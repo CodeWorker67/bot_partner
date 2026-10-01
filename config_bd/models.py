@@ -58,6 +58,7 @@ class PartnerBotSettings(Base):
     bot_display_name = Column(String(255), nullable=True)
     source_bot_id = Column(BigInteger, nullable=True)
     partner_bot_creation_enabled = Column(Boolean, default=True)
+    menu_photo_file_id = Column(String(512), nullable=True)
 
 
 class PartnerPanelAdmin(Base):
@@ -264,6 +265,10 @@ async def _migrate_schema():
                     "UPDATE partner_bot_settings SET partner_bot_creation_enabled = 1 "
                     "WHERE partner_bot_creation_enabled IS NULL"
                 )
+            )
+        if "menu_photo_file_id" not in settings_cols:
+            await conn.execute(
+                text("ALTER TABLE partner_bot_settings ADD COLUMN menu_photo_file_id VARCHAR(512)")
             )
 
 

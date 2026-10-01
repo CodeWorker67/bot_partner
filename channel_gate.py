@@ -8,6 +8,7 @@ from bot import bot, sql
 from keyboard import channel_keyboard
 from lexicon import lexicon
 from logging_config import logger
+from utils.menu_ui import edit_or_send_menu, send_menu_message
 
 
 async def needs_channel_block(user_id: int) -> tuple[bool, str | None]:
@@ -38,10 +39,10 @@ async def send_channel_required(target: Message | CallbackQuery, channel_url: st
     user_id = target.from_user.id if target.from_user else 0
     kb = channel_keyboard(channel_url, show_owner_panel=await sql.can_access_partner_panel(user_id))
     if isinstance(target, CallbackQuery):
-        await target.message.answer(text, reply_markup=kb)
+        await edit_or_send_menu(target, text, kb)
         await target.answer()
     else:
-        await target.answer(text, reply_markup=kb)
+        await send_menu_message(target.chat.id, text, kb)
 
 
 def require_channel_sub(handler: Callable):

@@ -7,11 +7,11 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
 from bot import sql
-from handlers.handlers_user import _main_keyboard
 from keyboard import create_kb
 from lexicon import lexicon
 from logging_config import logger
 from services.master_api_client import MasterApiError, submit_partner_bot_application
+from utils.menu_ui import edit_or_send_menu, show_main_menu
 
 router = Router()
 
@@ -26,9 +26,10 @@ async def create_partner_bot_start(callback: CallbackQuery, state: FSMContext):
         await callback.answer(lexicon["create_partner_bot_disabled"], show_alert=True)
         return
     await state.set_state(CreatePartnerBotFSM.waiting_token)
-    await callback.message.edit_text(
+    await edit_or_send_menu(
+        callback,
         lexicon["create_partner_bot_prompt"],
-        reply_markup=create_kb(1, cancel_partner_apply="❌ Отмена"),
+        create_kb(1, cancel_partner_apply="❌ Отмена"),
     )
     await callback.answer()
 
@@ -40,21 +41,19 @@ async def cancel_partner_apply(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
     await state.clear()
-    await callback.message.edit_text(
-        lexicon["create_partner_bot_cancelled"],
-        reply_markup=await _main_keyboard(callback.from_user.id),
-    )
     await callback.answer()
+    await edit_or_send_menu(
+        callback,
+        lexicon["create_partner_bot_cancelled"],
+        create_kb(1, earn_with_us="◀️ Назад"),
+    )
 
 
 @router.message(CreatePartnerBotFSM.waiting_token)
 async def create_partner_bot_token(message: Message, state: FSMContext):
     if not await sql.is_partner_bot_creation_enabled():
         await state.clear()
-        await message.answer(
-            lexicon["create_partner_bot_disabled"],
-            reply_markup=await _main_keyboard(message.from_user.id),
-        )
+        await show_main_menu(message)
         return
     token = (message.text or "").strip()
     if not token:
@@ -85,7 +84,10 @@ async def create_partner_bot_token(message: Message, state: FSMContext):
         return
 
     await state.clear()
-    await message.answer(
+    from utils.menu_ui import send_menu_message
+
+    await send_menu_message(
+        message.chat.id,
         lexicon["create_partner_bot_success"],
-        reply_markup=await _main_keyboard(message.from_user.id),
+        create_kb(1, back_to_main="◀️ Назад"),
     )

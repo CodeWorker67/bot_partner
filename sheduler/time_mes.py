@@ -13,6 +13,7 @@ from config import CHECKER_ID
 from keyboard import keyboard_buy_device_tier
 from lexicon import lexicon
 from logging_config import logger
+from utils.menu_ui import send_menu_message
 
 WINDOW = timedelta(minutes=10)
 STATE_VERSION = 2
@@ -165,7 +166,7 @@ async def send_message_cron(bot: Bot):
                 t_h = end - timedelta(hours=1)
 
                 if '7' not in sent and _in_send_window(now, t7):
-                    await bot.send_message(chat_id=user_id, text=lexicon['push_7'], reply_markup=keyboard)
+                    await send_menu_message(user_id, lexicon['push_7'], keyboard)
                     await asyncio.sleep(0.05)
                     sent.add('7')
                     push_field_cache[user_id] = await _persist_push_state(
@@ -176,7 +177,7 @@ async def send_message_cron(bot: Bot):
                     ids_7.append(user_id)
                     logger.info(f"Отправлено push-уведомление пользователю {user_id} за 7 дней")
                 elif '3' not in sent and _in_send_window(now, t3):
-                    await bot.send_message(chat_id=user_id, text=lexicon['push_3'], reply_markup=keyboard)
+                    await send_menu_message(user_id, lexicon['push_3'], keyboard)
                     await asyncio.sleep(0.05)
                     sent.add('3')
                     push_field_cache[user_id] = await _persist_push_state(
@@ -187,7 +188,7 @@ async def send_message_cron(bot: Bot):
                     ids_3.append(user_id)
                     logger.info(f"Отправлено push-уведомление пользователю {user_id} за 3 дня")
                 elif '1' not in sent and _in_send_window(now, t1):
-                    await bot.send_message(chat_id=user_id, text=lexicon['push_1'], reply_markup=keyboard)
+                    await send_menu_message(user_id, lexicon['push_1'], keyboard)
                     await asyncio.sleep(0.05)
                     sent.add('1')
                     push_field_cache[user_id] = await _persist_push_state(
@@ -198,7 +199,7 @@ async def send_message_cron(bot: Bot):
                     ids_1.append(user_id)
                     logger.info(f"Отправлено push-уведомление пользователю {user_id} за 1 день")
                 elif 'h' not in sent and _in_send_window(now, t_h):
-                    await bot.send_message(chat_id=user_id, text=lexicon['push_0'], reply_markup=keyboard)
+                    await send_menu_message(user_id, lexicon['push_0'], keyboard)
                     await asyncio.sleep(0.05)
                     sent.add('h')
                     push_field_cache[user_id] = await _persist_push_state(
@@ -216,10 +217,10 @@ async def send_message_cron(bot: Bot):
                         break
                     key = f'p{n}'
                     if key not in sent and _in_send_window(now, moment):
-                        await bot.send_message(
-                            chat_id=user_id,
-                            text=random.choice(lexicon['push_off']),
-                            reply_markup=keyboard,
+                        await send_menu_message(
+                            user_id,
+                            random.choice(lexicon['push_off']),
+                            keyboard,
                         )
                         await asyncio.sleep(0.05)
                         sent.add(key)

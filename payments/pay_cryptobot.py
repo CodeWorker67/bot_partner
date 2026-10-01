@@ -9,6 +9,7 @@ from keyboard import create_kb, STYLE_PRIMARY
 from lexicon import lexicon, payment_tariff_summary_pro
 from tariff_resolve import tariff_days_for_x3, tariff_rub_and_desc, device_from_tariff_key
 from logging_config import logger
+from utils.menu_ui import edit_or_send_menu, send_menu_message
 
 router: Router = Router()
 
@@ -190,10 +191,11 @@ async def process_payment_crypto(callback: CallbackQuery):
                 style=STYLE_PRIMARY,
             )]
         ])
-        await callback.message.edit_text(text, reply_markup=pay_keyboard)
+        await edit_or_send_menu(callback, text, pay_keyboard)
         logger.info(f"Юзер {user_id} создал счет в Cryptobot на {rub_amount} руб {'(подарок)' if gift_flag else ''}")
     else:
-        await callback.message.answer(
+        await send_menu_message(
+            callback.from_user.id,
             lexicon.get('error_payment', 'Произошла ошибка при создании счета.'),
-            reply_markup=create_kb(1, back_to_main='🔙 Назад')
+            create_kb(1, back_to_main='◀️ Назад'),
         )

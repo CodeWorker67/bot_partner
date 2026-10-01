@@ -7,11 +7,12 @@ from channel_gate import needs_channel_block, require_channel_sub, send_channel_
 from config import BOT_ID, BOT_URL, PARTNER_MIN_WITHDRAW, PARTNER_PROCENT, PARTNER_SUPPORT_URL, REFERRAL_PROCENT, SUPPORT_URL
 from keyboard import (
     channel_keyboard,
+    keyboard_buy_menu,
     keyboard_buy_tiers,
     keyboard_duration,
+    keyboard_earn_with_us,
     keyboard_gift_duration,
     keyboard_gift_tiers,
-    keyboard_main,
     keyboard_partner_dashboard,
     keyboard_partner_intro,
     keyboard_partner_withdraw,
@@ -19,6 +20,12 @@ from keyboard import (
     keyboard_ref_dashboard,
     keyboard_sub_after_buy,
     keyboard_subscription,
+)
+from utils.menu_ui import (
+    MAIN_MENU_BUTTON_TEXT,
+    edit_or_send_menu,
+    send_menu_message,
+    show_main_menu,
 )
 from lexicon import lexicon, payment_tariff_summary_pro
 from lead_tracker import (
@@ -31,19 +38,6 @@ from logging_config import logger
 from tariff_resolve import device_from_tariff_key, get_prices, panel_username, tariff_days_for_x3, tariff_rub_and_desc
 
 router = Router()
-
-
-async def _main_keyboard(user_id: int, *, welcome_only: bool = False):
-    user = await sql.get_user_object_by_user_id(user_id)
-    show_trial = not (user and user.in_panel)
-    is_owner = await sql.can_access_partner_panel(user_id)
-    show_create_partner_bot = await sql.is_partner_bot_creation_enabled()
-    return keyboard_main(
-        show_owner_panel=is_owner,
-        welcome_only=welcome_only,
-        show_trial=show_trial,
-        show_create_partner_bot=show_create_partner_bot,
-    )
 
 
 async def _ensure_user(message: Message, ref: str = "", stamp: str = "") -> None:
@@ -61,27 +55,6 @@ async def _ensure_user(message: Message, ref: str = "", stamp: str = "") -> None
         full_name=message.from_user.full_name,
         language=message.from_user.language_code,
     )
-
-
-async def _send_main_menu(
-    target: Message | CallbackQuery,
-    user_id: int,
-    *,
-    edit: bool = False,
-) -> None:
-    user = await sql.get_user_object_by_user_id(user_id)
-    welcome_only = not (user and user.in_panel)
-    text = lexicon["start_bonus"] if welcome_only else lexicon["start"]
-    kb = await _main_keyboard(user_id, welcome_only=welcome_only)
-    if isinstance(target, CallbackQuery):
-        if edit:
-            await target.message.edit_text(text, reply_markup=kb)
-        else:
-            await target.message.answer(text, reply_markup=kb)
-    elif edit:
-        await target.edit_text(text, reply_markup=kb)
-    else:
-        await target.answer(text, reply_markup=kb)
 
 
 @router.message(CommandStart())
@@ -136,7 +109,7 @@ async def process_start_command(message: Message):
         await send_channel_required(message, url or "")
         return
 
-    await _send_main_menu(message, message.from_user.id)
+    await show_main_menu(message, send_hint=is_new)
 
 
 async def _activate_gift(message: Message, gift_id: str):
@@ -175,26 +148,37 @@ async def _activate_gift(message: Message, gift_id: str):
     sub_time = result.get("time", "-")
     from wl_traffic.service import apply_wl_subscription_bonus
     await apply_wl_subscription_bonus(sql, x3, tg_id, int(days))
-    await message.answer(
+    await send_menu_message(
+        message.chat.id,
         lexicon["gift_activated"].format(sub_time),
-        reply_markup=keyboard_sub_after_buy(result.get("url", "")),
+        keyboard_sub_after_buy(result.get("url", "")),
     )
+
+
+@router.message(F.text == MAIN_MENU_BUTTON_TEXT)
+async def main_menu_reply(message: Message):
+    blocked, url = await needs_channel_block(message.from_user.id)
+    if blocked:
+        await send_channel_required(message, url or "")
+        return
+    await show_main_menu(message)
 
 
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery):
     blocked, url = await needs_channel_block(callback.from_user.id)
     if blocked:
-        await callback.message.edit_text(
+        await edit_or_send_menu(
+            callback,
             lexicon["channel_required"],
-            reply_markup=channel_keyboard(
+            channel_keyboard(
                 url or "",
                 show_owner_panel=await sql.can_access_partner_panel(callback.from_user.id),
             ),
         )
         await callback.answer()
         return
-    await _send_main_menu(callback, callback.from_user.id, edit=True)
+    await show_main_menu(callback)
     await callback.answer()
 
 
@@ -202,13 +186,13 @@ async def back_to_main(callback: CallbackQuery):
 async def channel_sub_check(callback: CallbackQuery):
     settings = await sql.get_bot_settings()
     if not settings or not settings.get("channel_required"):
-        await _send_main_menu(callback, callback.from_user.id, edit=True)
+        await show_main_menu(callback)
         await callback.answer()
         return
 
     if await verify_channel_subscription(callback.from_user.id):
         await sql.update_in_chanel(callback.from_user.id, True)
-        await _send_main_menu(callback, callback.from_user.id, edit=True)
+        await show_main_menu(callback)
         await callback.answer()
         return
 
@@ -218,8 +202,23 @@ async def channel_sub_check(callback: CallbackQuery):
 @router.callback_query(F.data == "buy_vpn")
 @require_channel_sub
 async def buy_vpn_cb(callback: CallbackQuery):
-    await callback.message.edit_text(lexicon["buy"], reply_markup=keyboard_buy_tiers())
     await callback.answer()
+    await edit_or_send_menu(
+        callback,
+        lexicon["buy_menu"],
+        keyboard_buy_menu(),
+    )
+
+
+@router.callback_query(F.data == "buy_vpn_self")
+@require_channel_sub
+async def buy_vpn_self_cb(callback: CallbackQuery):
+    await callback.answer()
+    await edit_or_send_menu(
+        callback,
+        lexicon["buy"],
+        keyboard_buy_tiers(),
+    )
 
 
 @router.callback_query(F.data.startswith("buy_tier_"))
@@ -228,11 +227,12 @@ async def buy_tier_chosen(callback: CallbackQuery):
     tier = callback.data.replace("buy_tier_", "")
     device = int(tier)
     prices = await get_prices(sql)
-    await callback.message.edit_text(
-        lexicon["choose_tariff"],
-        reply_markup=keyboard_duration(device, prefix="r", prices=prices),
-    )
     await callback.answer()
+    await edit_or_send_menu(
+        callback,
+        lexicon["choose_tariff"],
+        keyboard_duration(device, prefix="r", prices=prices),
+    )
 
 
 @router.callback_query(F.data.startswith("r_m"))
@@ -244,11 +244,12 @@ async def process_payment_method(callback: CallbackQuery):
     amount, desc = tariff_rub_and_desc(price_key, prices)
     device = device_from_tariff_key(price_key)
     summary = payment_tariff_summary_pro(price_key, prices)
-    await callback.message.edit_text(
-        summary,
-        reply_markup=keyboard_payment_methods(tarif_cb, amount, is_gift=False),
-    )
     await callback.answer()
+    await edit_or_send_menu(
+        callback,
+        summary,
+        keyboard_payment_methods(tarif_cb, amount, is_gift=False),
+    )
 
 
 @router.callback_query(F.data == "trial_vpn")
@@ -271,11 +272,12 @@ async def trial_vpn_cb(callback: CallbackQuery):
     await sql.init_wl_trial_limits(tg_id)
     await post_user_trial(tg_id)
     result = await x3.activ(user_id_str)
-    await callback.message.edit_text(
-        lexicon["trial_success"].format(days, result.get("time", "-")),
-        reply_markup=keyboard_sub_after_buy(result.get("url", "")),
-    )
     await callback.answer()
+    await edit_or_send_menu(
+        callback,
+        lexicon["trial_success"].format(days, result.get("time", "-")),
+        keyboard_sub_after_buy(result.get("url", "")),
+    )
 
 
 @router.callback_query(F.data == "connect_vpn")
@@ -286,9 +288,10 @@ async def connect_vpn_cb(callback: CallbackQuery):
     if not links:
         await callback.answer(lexicon["no_sub"], show_alert=True)
         return
-    await callback.message.edit_text(
+    await edit_or_send_menu(
+        callback,
         lexicon["to_sub"],
-        reply_markup=keyboard_subscription(links),
+        keyboard_subscription(links),
     )
     await callback.answer()
 
@@ -300,11 +303,12 @@ async def ref_program_cb(callback: CallbackQuery):
     user = await sql.get_user_object_by_user_id(tg_id)
     balance = (user.ref_balance or 0) if user else 0
     link = f"{BOT_URL}?start=ref{tg_id}"
-    await callback.message.edit_text(
-        lexicon["ref_info"].format(count, tg_id, REFERRAL_PROCENT, balance, link),
-        reply_markup=keyboard_ref_dashboard(),
-    )
     await callback.answer()
+    await edit_or_send_menu(
+        callback,
+        lexicon["ref_info"].format(count, tg_id, REFERRAL_PROCENT, balance, link),
+        keyboard_ref_dashboard(),
+    )
 
 
 async def _send_partner_dashboard(callback: CallbackQuery) -> None:
@@ -317,7 +321,8 @@ async def _send_partner_dashboard(callback: CallbackQuery) -> None:
     total_earned = balance + paid_out
     available = balance
     link = f"{BOT_URL}?start=partner_{tg_id}"
-    await callback.message.edit_text(
+    await edit_or_send_menu(
+        callback,
         lexicon["partner_dashboard"].format(
             link=link,
             procent=PARTNER_PROCENT,
@@ -327,9 +332,32 @@ async def _send_partner_dashboard(callback: CallbackQuery) -> None:
             paid_out=paid_out,
             balance=available,
         ),
-        parse_mode="HTML",
-        reply_markup=keyboard_partner_dashboard(show_withdraw=available >= PARTNER_MIN_WITHDRAW),
-        disable_web_page_preview=True,
+        keyboard_partner_dashboard(
+            tg_id,
+            show_withdraw=available >= PARTNER_MIN_WITHDRAW,
+        ),
+    )
+
+
+@router.callback_query(F.data == "earn_with_us")
+async def earn_with_us_cb(callback: CallbackQuery):
+    await callback.answer()
+    show_create = await sql.is_partner_bot_creation_enabled()
+    await edit_or_send_menu(
+        callback,
+        lexicon["earn_menu"],
+        keyboard_earn_with_us(show_create_partner_bot=show_create),
+    )
+
+
+@router.callback_query(F.data == "back_to_earn")
+async def back_to_earn_cb(callback: CallbackQuery):
+    await callback.answer()
+    show_create = await sql.is_partner_bot_creation_enabled()
+    await edit_or_send_menu(
+        callback,
+        lexicon["earn_menu"],
+        keyboard_earn_with_us(show_create_partner_bot=show_create),
     )
 
 
@@ -340,13 +368,13 @@ async def partner_program(callback: CallbackQuery):
     if user and user.partner_flag:
         await _send_partner_dashboard(callback)
     else:
-        await callback.message.edit_text(
+        await edit_or_send_menu(
+            callback,
             lexicon["partner_intro"].format(
                 procent=PARTNER_PROCENT,
                 min_sum=PARTNER_MIN_WITHDRAW,
             ),
-            parse_mode="HTML",
-            reply_markup=keyboard_partner_intro(),
+            keyboard_partner_intro(),
         )
 
 
@@ -374,32 +402,37 @@ async def partner_withdraw(callback: CallbackQuery):
 
     await callback.answer()
     support_url = PARTNER_SUPPORT_URL or "https://t.me/"
-    await callback.message.edit_text(
+    await edit_or_send_menu(
+        callback,
         lexicon["partner_withdraw_info"].format(
             balance=available,
             min_sum=PARTNER_MIN_WITHDRAW,
         ),
-        parse_mode="HTML",
-        reply_markup=keyboard_partner_withdraw(support_url),
+        keyboard_partner_withdraw(support_url),
     )
 
 
 @router.callback_query(F.data == "buy_gift")
 @require_channel_sub
 async def gift_start(callback: CallbackQuery):
-    await callback.message.edit_text(lexicon["gift_start"], reply_markup=keyboard_gift_tiers())
     await callback.answer()
+    await edit_or_send_menu(
+        callback,
+        lexicon["gift_start"],
+        keyboard_gift_tiers(),
+    )
 
 
 @router.callback_query(F.data.startswith("gift_tier_"))
 async def gift_tier_chosen(callback: CallbackQuery):
     device = int(callback.data.replace("gift_tier_", ""))
     prices = await get_prices(sql)
-    await callback.message.edit_text(
-        lexicon["choose_tariff"],
-        reply_markup=keyboard_gift_duration(device, prices=prices),
-    )
     await callback.answer()
+    await edit_or_send_menu(
+        callback,
+        lexicon["choose_tariff"],
+        keyboard_gift_duration(device, prices=prices),
+    )
 
 
 @router.callback_query(F.data.startswith("gift_r_m"))
@@ -410,11 +443,12 @@ async def gift_payment_method(callback: CallbackQuery):
     amount, desc = tariff_rub_and_desc(price_key, prices)
     device = device_from_tariff_key(price_key)
     summary = payment_tariff_summary_pro(price_key, prices)
-    await callback.message.edit_text(
-        summary,
-        reply_markup=keyboard_payment_methods(tarif_cb, amount, is_gift=True),
-    )
     await callback.answer()
+    await edit_or_send_menu(
+        callback,
+        summary,
+        keyboard_payment_methods(tarif_cb, amount, is_gift=True),
+    )
 
 
 @router.chat_member()

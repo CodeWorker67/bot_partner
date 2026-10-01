@@ -2,6 +2,7 @@ from bot import bot, sql
 from config import CRYPTOBOT_API_TOKEN
 from keyboard import keyboard_payment_cancel
 from lexicon import lexicon
+from utils.menu_ui import send_menu_message
 from logging_config import logger
 from payments.pay_cryptobot import CryptoBotPayment
 from payments.process_payload import process_confirmed_payment
@@ -54,7 +55,11 @@ async def check_cryptobot_payments():
                     try:
                         user_id = payment.user_id
                         cancel_text = lexicon['payment_cancel']
-                        await bot.send_message(user_id, cancel_text, reply_markup=keyboard_payment_cancel())
+                        await send_menu_message(
+                            user_id,
+                            cancel_text,
+                            keyboard_payment_cancel(),
+                        )
                     except Exception as e:
                         logger.error(f"Failed to notify user {payment.user_id}: {e}")
 

@@ -23,6 +23,7 @@ from wl_traffic.constants import (
     WL_TRAFFIC_TARIFFS,
 )
 from wl_traffic.service import get_wl_used_gb_for_user
+from utils.menu_ui import edit_or_send_menu
 
 router = Router()
 
@@ -52,9 +53,10 @@ async def user_profile_cb(callback: CallbackQuery):
     uid = callback.from_user.id
     user = await sql.get_user_object_by_user_id(uid)
     if not user:
-        await callback.message.answer(
+        await edit_or_send_menu(
+            callback,
             "❌ Профиль не найден.",
-            reply_markup=create_kb(1, back_to_main=BTN_BACK),
+            create_kb(1, back_to_main=BTN_BACK),
         )
         return
 
@@ -62,15 +64,15 @@ async def user_profile_cb(callback: CallbackQuery):
     used_gb = await get_wl_used_gb_for_user(x3, uid, trafic_wl)
     remaining_gb = max(0.0, round(limit_gb - used_gb, 2))
 
-    await callback.message.answer(
-        text=lexicon["user_profile"].format(
+    await edit_or_send_menu(
+        callback,
+        lexicon["user_profile"].format(
             sub_end=_format_pro_sub_end(user),
             limit_gb=limit_gb,
             used_gb=used_gb,
             remaining_gb=remaining_gb,
         ),
-        parse_mode="HTML",
-        reply_markup=keyboard_profile(),
+        keyboard_profile(),
     )
 
 
@@ -78,10 +80,10 @@ async def user_profile_cb(callback: CallbackQuery):
 async def wl_traffic_buy_cb(callback: CallbackQuery):
     back_callback = PROFILE_CB if callback.data == WL_TRAFFIC_BUY_CB else BUY_VPN_CB
     await callback.answer()
-    await callback.message.answer(
-        text=lexicon["wl_traffic_buy_prompt"],
-        parse_mode="HTML",
-        reply_markup=keyboard_wl_traffic_tariffs(back_callback=back_callback),
+    await edit_or_send_menu(
+        callback,
+        lexicon["wl_traffic_buy_prompt"],
+        keyboard_wl_traffic_tariffs(back_callback=back_callback),
     )
 
 
@@ -96,8 +98,8 @@ async def wl_traffic_tariff_cb(callback: CallbackQuery):
 
     price = WL_TRAFFIC_TARIFFS[gb]
     back_cb = WL_TRAFFIC_BUY_SUB_CB if from_sub else WL_TRAFFIC_BUY_CB
-    await callback.message.answer(
-        text=lexicon["wl_traffic_payment_intro"].format(gb=gb, price=price),
-        parse_mode="HTML",
-        reply_markup=keyboard_wl_traffic_payment_method(gb, back_callback=back_cb),
+    await edit_or_send_menu(
+        callback,
+        lexicon["wl_traffic_payment_intro"].format(gb=gb, price=price),
+        keyboard_wl_traffic_payment_method(gb, back_callback=back_cb),
     )

@@ -12,6 +12,7 @@ from payments.pay_cryptobot import create_cryptobot_payment
 from payments.pay_freekassa import pay
 from payments.payment_limits import payment_creation_allowed
 from wl_traffic.constants import WL_TRAFFIC_TARIFFS
+from utils.menu_ui import edit_or_send_menu, send_menu_message
 
 router = Router()
 
@@ -45,9 +46,10 @@ async def _pay_fk(callback: CallbackQuery, ui_kind: str) -> None:
 
     user_id = str(callback.from_user.id)
     if not await payment_creation_allowed(int(user_id)):
-        await callback.message.answer(
+        await send_menu_message(
+            callback.from_user.id,
             lexicon["payment_too_many_pending"].format(PAYMENT_MAX_PENDING_PER_USER),
-            reply_markup=create_kb(1, back_to_main=BTN_BACK),
+            create_kb(1, back_to_main=BTN_BACK),
         )
         return
 
@@ -66,20 +68,22 @@ async def _pay_fk(callback: CallbackQuery, ui_kind: str) -> None:
 
     btn = "⚡ Оплатить СБП" if ui_kind == "sbp" else "💳 Оплатить картой РФ"
     if payment_info["status"] == "pending":
-        await callback.message.edit_text(
-            text=lexicon["wl_traffic_payment_link"].format(gb=gb),
-            parse_mode="HTML",
-            reply_markup=keyboard_payment_sbp(btn, payment_info["url"]),
+        await edit_or_send_menu(
+            callback,
+            lexicon["wl_traffic_payment_link"].format(gb=gb),
+            keyboard_payment_sbp(btn, payment_info["url"]),
         )
     elif payment_info["status"] == "rate_limited":
-        await callback.message.answer(
+        await send_menu_message(
+            callback.from_user.id,
             lexicon["payment_too_many_pending"].format(PAYMENT_MAX_PENDING_PER_USER),
-            reply_markup=create_kb(1, back_to_main=BTN_BACK),
+            create_kb(1, back_to_main=BTN_BACK),
         )
     else:
-        await callback.message.answer(
+        await send_menu_message(
+            callback.from_user.id,
             lexicon["error_payment"],
-            reply_markup=create_kb(1, back_to_main=BTN_BACK),
+            create_kb(1, back_to_main=BTN_BACK),
         )
 
 
@@ -119,9 +123,10 @@ async def wl_traffic_pay_crypto(callback: CallbackQuery):
 
     user_id = callback.from_user.id
     if not await payment_creation_allowed(int(user_id)):
-        await callback.message.answer(
+        await send_menu_message(
+            callback.from_user.id,
             lexicon["payment_too_many_pending"].format(PAYMENT_MAX_PENDING_PER_USER),
-            reply_markup=create_kb(1, back_to_main=BTN_BACK),
+            create_kb(1, back_to_main=BTN_BACK),
         )
         return
 
@@ -146,13 +151,14 @@ async def wl_traffic_pay_crypto(callback: CallbackQuery):
                 style=STYLE_SUCCESS,
             )]
         ])
-        await callback.message.edit_text(
-            text=lexicon["wl_traffic_payment_link"].format(gb=gb),
-            parse_mode="HTML",
-            reply_markup=pay_keyboard,
+        await edit_or_send_menu(
+            callback,
+            lexicon["wl_traffic_payment_link"].format(gb=gb),
+            pay_keyboard,
         )
     else:
-        await callback.message.answer(
+        await send_menu_message(
+            callback.from_user.id,
             lexicon.get("error_payment", "Произошла ошибка при создании счета."),
-            reply_markup=create_kb(1, back_to_main=BTN_BACK),
+            create_kb(1, back_to_main=BTN_BACK),
         )

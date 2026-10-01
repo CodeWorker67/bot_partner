@@ -13,6 +13,7 @@ from keyboard import (
 )
 from lexicon import lexicon
 from tariff_resolve import panel_username
+from utils.menu_ui import edit_or_send_menu
 
 router: Router = Router()
 
@@ -94,19 +95,17 @@ def _panel_username_for_slot(telegram_id: int, slot_key: str) -> str:
 @require_channel_sub
 async def import_select_os(callback: CallbackQuery):
     await callback.answer()
-    await callback.message.answer(
-        text=lexicon["import_start"],
-        reply_markup=keyboard_import_os(),
-    )
+    await edit_or_send_menu(callback, lexicon["import_start"], keyboard_import_os())
 
 
 @router.callback_query(F.data.in_(OS_CALLBACKS))
 @require_channel_sub
 async def import_select_app(callback: CallbackQuery):
     await callback.answer()
-    await callback.message.answer(
-        text=lexicon["import_select_app"],
-        reply_markup=keyboard_import_app(callback.data),
+    await edit_or_send_menu(
+        callback,
+        lexicon["import_select_app"],
+        keyboard_import_app(callback.data),
     )
 
 
@@ -119,16 +118,18 @@ async def import_select_sub(callback: CallbackQuery):
     links = await x3.active_subscription_links(callback.from_user.id, BOT_ID)
     if not links:
         await callback.answer()
-        await callback.message.answer(
-            text=lexicon["no_sub"],
-            reply_markup=create_kb(1, back_to_main="🔙 Назад"),
+        await edit_or_send_menu(
+            callback,
+            lexicon["no_sub"],
+            create_kb(1, back_to_main="◀️ Назад"),
         )
         return
 
     await callback.answer()
-    await callback.message.answer(
-        text=lexicon["import_select_sub"],
-        reply_markup=keyboard_import_sub(callback.data, links),
+    await edit_or_send_menu(
+        callback,
+        lexicon["import_select_sub"],
+        keyboard_import_sub(callback.data, links),
     )
 
 
@@ -145,9 +146,10 @@ async def import_end(callback: CallbackQuery):
     username = _panel_username_for_slot(callback.from_user.id, slot_key)
     sub_url = await x3.sublink(username)
     if not sub_url:
-        await callback.message.answer(
+        await edit_or_send_menu(
+            callback,
             "❌ Не удалось получить ссылку. Обратитесь в поддержку.",
-            reply_markup=create_kb(1, back_to_main="🔙 Назад"),
+            create_kb(1, back_to_main="◀️ Назад"),
         )
         return
 
@@ -174,8 +176,4 @@ async def import_end(callback: CallbackQuery):
         url_import=sub_url,
     )
 
-    await callback.message.answer(
-        caption,
-        parse_mode="HTML",
-        reply_markup=keyboard_import_end(url_app),
-    )
+    await edit_or_send_menu(callback, caption, keyboard_import_end(url_app))

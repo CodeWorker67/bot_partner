@@ -15,6 +15,7 @@ from payments.payment_limits import payment_creation_allowed
 from payments.payload_source import SITE
 from tariff_resolve import tariff_days_for_x3, tariff_rub_and_desc, device_from_tariff_key
 from logging_config import logger
+from utils.menu_ui import edit_or_send_menu, send_menu_message
 
 router = Router()
 
@@ -354,9 +355,10 @@ async def _handle_wata_style_callback(callback: CallbackQuery, ui_kind: UiKind) 
     device_n = device_from_tariff_key(duration_plain)
 
     if ui_kind == "card" and not gift_flag and duration_plain == "r_3":
-        await callback.message.answer(
+        await send_menu_message(
+            callback.from_user.id,
             "Для пробного периода оплата картой не поддерживается. Выберите СБП, Stars или Crypto bot.",
-            reply_markup=create_kb(1, back_to_main=BTN_BACK),
+            create_kb(1, back_to_main=BTN_BACK),
         )
         return
 
@@ -394,9 +396,10 @@ async def _handle_wata_style_callback(callback: CallbackQuery, ui_kind: UiKind) 
                 text += "\n\nДля оплаты <b>подарочной подписки</b> перейдите по ссылке:"
             else:
                 text += "\n\nДля оплаты тарифа перейдите по ссылке:"
-            await callback.message.edit_text(
-                text=text,
-                reply_markup=keyboard_payment_sbp(btn, payment_info["url"]),
+            await edit_or_send_menu(
+                callback,
+                text,
+                keyboard_payment_sbp(btn, payment_info["url"]),
             )
             logger.info(
                 f"Юзер {user_id} создал {log_label} {_fk_amount_rub(str(rub_amount), ui_kind)} руб "
@@ -404,7 +407,11 @@ async def _handle_wata_style_callback(callback: CallbackQuery, ui_kind: UiKind) 
             )
         except Exception as e:
             logger.error(f"FreeKassa UI: {e}")
-            await callback.message.answer(lexicon["error_payment"], reply_markup=create_kb(1, back_to_main=BTN_BACK))
+            await send_menu_message(
+                callback.from_user.id,
+                lexicon["error_payment"],
+                create_kb(1, back_to_main=BTN_BACK),
+            )
 
 
 @router.callback_query(F.data.startswith("wata_sbp_"))

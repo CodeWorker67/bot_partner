@@ -9,6 +9,7 @@ from config import ADMIN_IDS, BOT_ID
 from keyboard import BTN_BACK, create_kb
 from lexicon import lexicon
 from logging_config import logger
+from utils.menu_ui import send_menu_message
 from tariff_resolve import panel_username
 from wl_traffic.service import (
     any_pro_user_on_limited_squad,
@@ -116,7 +117,11 @@ async def paint_collect_value(message: Message, state: FSMContext):
             values["balance"],
             values["partner_since"],
         )
-        await message.answer(text, reply_markup=create_kb(1, owner_panel=BTN_BACK))
+        await send_menu_message(
+            message.chat.id,
+            text,
+            create_kb(1, owner_panel=BTN_BACK),
+        )
         return
 
     await state.update_data(paint_step=next_step, paint_values=values)
@@ -462,16 +467,15 @@ async def add_traffic_command(message: Message):
     )
 
     try:
-        await bot.send_message(
-            chat_id=target_id,
-            text=lexicon["wl_traffic_admin_grant"].format(
+        await send_menu_message(
+            target_id,
+            lexicon["wl_traffic_admin_grant"].format(
                 gb=gb,
                 limit_gb=limit_wl,
                 used_gb=used_gb,
                 remaining_gb=remaining_gb,
             ),
-            parse_mode="HTML",
-            reply_markup=create_kb(1, back_to_main=BTN_BACK),
+            create_kb(1, back_to_main=BTN_BACK),
         )
     except Exception as e:
         await message.answer(f"⚠️ Лимит добавлен, но push пользователю не отправлен: {e}")

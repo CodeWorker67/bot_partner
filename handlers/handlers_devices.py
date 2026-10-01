@@ -8,7 +8,6 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot import x3
-from handlers.handlers_user import _main_keyboard
 from keyboard import (
     BTN_BACK,
     keyboard_devices_confirm,
@@ -17,6 +16,7 @@ from keyboard import (
 )
 from lexicon import lexicon
 from logging_config import logger
+from utils.menu_ui import edit_or_send_menu, show_main_menu
 
 router = Router()
 
@@ -148,15 +148,17 @@ async def _resolve_device(
 async def _show_subscriptions(callback: CallbackQuery) -> None:
     slots = await _active_slots(callback.from_user.id)
     if not slots:
-        await callback.message.edit_text(
-            text=_no_subscriptions_text(),
-            reply_markup=keyboard_devices_subscriptions([]),
+        await edit_or_send_menu(
+            callback,
+            _no_subscriptions_text(),
+            keyboard_devices_subscriptions([]),
         )
         return
 
-    await callback.message.edit_text(
-        text=_subscriptions_text(),
-        reply_markup=keyboard_devices_subscriptions(
+    await edit_or_send_menu(
+        callback,
+        _subscriptions_text(),
+        keyboard_devices_subscriptions(
             [(slot_key, label) for slot_key, label, _uuid in slots]
         ),
     )
@@ -178,42 +180,26 @@ async def _show_devices(callback: CallbackQuery, slot_key: str) -> None:
                 [InlineKeyboardButton(text=BTN_BACK, callback_data="dev_back_subs")]
             ]
         )
-        await callback.message.edit_text(text=text, reply_markup=markup)
+        await edit_or_send_menu(callback, text, markup)
         return
 
-    await callback.message.edit_text(
-        text=text,
-        reply_markup=keyboard_devices_list(slot_key, btn_rows),
+    await edit_or_send_menu(
+        callback,
+        text,
+        keyboard_devices_list(slot_key, btn_rows),
     )
 
 
 @router.callback_query(F.data == "manage_devices")
 async def manage_devices_entry(callback: CallbackQuery) -> None:
     await callback.answer()
-    slots = await _active_slots(callback.from_user.id)
-    if not slots:
-        await callback.message.answer(
-            text=_no_subscriptions_text(),
-            reply_markup=keyboard_devices_subscriptions([]),
-        )
-        return
-
-    await callback.message.answer(
-        text=_subscriptions_text(),
-        reply_markup=keyboard_devices_subscriptions(
-            [(slot_key, label) for slot_key, label, _uuid in slots]
-        ),
-    )
+    await _show_subscriptions(callback)
 
 
 @router.callback_query(F.data == "dev_back_main")
 async def devices_back_to_main(callback: CallbackQuery) -> None:
     await callback.answer()
-    await callback.message.edit_text(
-        text=lexicon["start"],
-        reply_markup=await _main_keyboard(callback.from_user.id),
-        disable_web_page_preview=True,
-    )
+    await show_main_menu(callback)
 
 
 @router.callback_query(F.data == "dev_back_subs")
@@ -252,9 +238,10 @@ async def devices_ask_delete(callback: CallbackQuery) -> None:
 
     label, _user_uuid, _username, device = resolved
     await callback.answer()
-    await callback.message.edit_text(
-        text=_delete_confirm_text(label, _device_display_name(device)),
-        reply_markup=keyboard_devices_confirm(slot_key, device_idx),
+    await edit_or_send_menu(
+        callback,
+        _delete_confirm_text(label, _device_display_name(device)),
+        keyboard_devices_confirm(slot_key, device_idx),
     )
 
 
@@ -316,10 +303,11 @@ async def devices_delete_device(callback: CallbackQuery) -> None:
                 [InlineKeyboardButton(text=BTN_BACK, callback_data="dev_back_subs")]
             ]
         )
-        await callback.message.edit_text(text=text, reply_markup=markup)
+        await edit_or_send_menu(callback, text, markup)
         return
 
-    await callback.message.edit_text(
-        text=text,
-        reply_markup=keyboard_devices_list(slot_key, btn_rows),
+    await edit_or_send_menu(
+        callback,
+        text,
+        keyboard_devices_list(slot_key, btn_rows),
     )

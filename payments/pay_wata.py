@@ -13,6 +13,7 @@ from keyboard import keyboard_payment_sbp, create_kb
 from lexicon import lexicon, payment_tariff_summary_pro
 from tariff_resolve import tariff_days_for_x3, tariff_rub_and_desc, device_from_tariff_key
 from logging_config import logger
+from utils.menu_ui import edit_or_send_menu, send_menu_message
 
 router = Router()
 
@@ -355,14 +356,19 @@ async def process_payment_wata_sbp(callback: CallbackQuery):
                 text += "\n\nДля оплаты <b>подарочной подписки</b> перейдите по ссылке:"
             else:
                 text += "\n\nДля оплаты тарифа перейдите по ссылке:"
-            await callback.message.edit_text(
-                text=text,
-                reply_markup=keyboard_payment_sbp("⚡ Оплатить СБП", payment_info["url"]),
+            await edit_or_send_menu(
+                callback,
+                text,
+                keyboard_payment_sbp("⚡ Оплатить СБП", payment_info["url"]),
             )
             logger.info(f"Юзер {user_id} создал WATA СБП {rub_amount} руб")
         except Exception as e:
             logger.error(f"WATA СБП UI: {e}")
-            await callback.message.answer(lexicon["error_payment"], reply_markup=create_kb(1, back_to_main="🔙 Назад"))
+            await send_menu_message(
+                callback.from_user.id,
+                lexicon["error_payment"],
+                create_kb(1, back_to_main="◀️ Назад"),
+            )
 
 
 @router.callback_query(F.data.startswith("wata_card_"))
@@ -386,9 +392,10 @@ async def process_payment_wata_card(callback: CallbackQuery):
     device_n = device_from_tariff_key(duration_plain)
 
     if not gift_flag and duration_plain == "r_3":
-        await callback.message.answer(
+        await send_menu_message(
+            callback.from_user.id,
             "Для пробного периода оплата картой не поддерживается. Выберите СБП, Stars или Crypto bot.",
-            reply_markup=create_kb(1, back_to_main="🔙 Назад"),
+            create_kb(1, back_to_main="◀️ Назад"),
         )
         return
 
@@ -423,11 +430,16 @@ async def process_payment_wata_card(callback: CallbackQuery):
                 text += "\n\nДля оплаты <b>подарочной подписки</b> перейдите по ссылке:"
             else:
                 text += "\n\nДля оплаты тарифа перейдите по ссылке:"
-            await callback.message.edit_text(
-                text=text,
-                reply_markup=keyboard_payment_sbp("💳 Оплатить картой РФ", payment_info["url"]),
+            await edit_or_send_menu(
+                callback,
+                text,
+                keyboard_payment_sbp("💳 Оплатить картой РФ", payment_info["url"]),
             )
             logger.info(f"Юзер {user_id} создал WATA Карта {rub_amount} руб")
         except Exception as e:
             logger.error(f"WATA Card UI: {e}")
-            await callback.message.answer(lexicon["error_payment"], reply_markup=create_kb(1, back_to_main="🔙 Назад"))
+            await send_menu_message(
+                callback.from_user.id,
+                lexicon["error_payment"],
+                create_kb(1, back_to_main="◀️ Назад"),
+            )

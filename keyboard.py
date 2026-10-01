@@ -6,6 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot_display import bot_display_name
 from config import BOT_URL, SUPPORT_URL, TARIFF_KEYS
+from utils.custom_emoji import emoji_button
 from tariff_resolve import OWNER_PRICE_SHORT, tariff_button_label
 from wl_traffic.constants import (
     BUY_VPN_CB,
@@ -15,7 +16,7 @@ from wl_traffic.constants import (
     WL_TRAFFIC_TARIFFS,
 )
 
-BTN_BACK = "🔙 Назад"
+BTN_BACK = "◀️ Назад"
 REVIEWS_URL = "https://t.me/otzividlyasvoi"
 
 STYLE_PRIMARY = "primary"
@@ -62,7 +63,7 @@ def create_kb(
         st = style_map.get(button_data)
         if st:
             buttons.append(
-                InlineKeyboardButton(
+                emoji_button(
                     text=button_text,
                     callback_data=button_data,
                     style=st,
@@ -70,7 +71,7 @@ def create_kb(
             )
         else:
             buttons.append(
-                InlineKeyboardButton(
+                emoji_button(
                     text=button_text,
                     callback_data=button_data,
                 )
@@ -156,61 +157,102 @@ def keyboard_start_bonus(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def keyboard_start(*, show_create_partner_bot: bool = True):
-    markup = create_kb(
-        1,
-        styles={
-            "buy_vpn": STYLE_SUCCESS,
-            "connect_vpn": STYLE_PRIMARY,
-            "manage_devices": STYLE_PRIMARY,
-            "ref": STYLE_PRIMARY,
-            "buy_gift": STYLE_SUCCESS,
-        },
-        buy_vpn="🛒 Купить подписку",
-        connect_vpn="🔗 Подключить ВПН",
-        manage_devices="📱 Управление устройствами",
-        ref="👥 Бесплатный VPN за приглашения",
-        buy_gift="🎁 Подарить подписку",
-    )
-    rows = list(markup.inline_keyboard)
-    rows.append(
-        [
-            InlineKeyboardButton(
-                text="🌐 Наш сайт",
-                callback_data=OPEN_SITE_CB,
-                style=STYLE_PRIMARY,
-            )
-        ]
-    )
-    rows.append(
-        [
-            InlineKeyboardButton(
-                text="💸 Зарабатывай с нами",
-                callback_data="partner_earn",
-                style=STYLE_SUCCESS,
-            )
-        ]
-    )
-    if show_create_partner_bot:
+def keyboard_start(
+    *,
+    connect_buttons: Optional[list[tuple[str, str]]] = None,
+    show_manage: bool = False,
+    buy_primary: bool = True,
+    show_trial: bool = False,
+    show_connect_callback: bool = False,
+    show_owner_panel: bool = False,
+    show_create_partner_bot: bool = False,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for text, url in connect_buttons or []:
+        if not url:
+            continue
         rows.append(
             [
-                InlineKeyboardButton(
-                    text="🤖 Создать своего VPN-бота",
-                    callback_data="create_partner_bot",
-                    style=STYLE_SUCCESS,
+                emoji_button(
+                    text=text[:64],
+                    url=url,
+                    style=STYLE_PRIMARY,
                 )
             ]
         )
+    if show_connect_callback and not any(url for _text, url in (connect_buttons or []) if url):
+        rows.append(
+            [
+                emoji_button(
+                    text="🔗 Подключить VPN",
+                    callback_data="connect_vpn",
+                    style=STYLE_PRIMARY,
+                )
+            ]
+        )
+    if show_manage or connect_buttons or show_connect_callback:
+        rows.append(
+            [
+                emoji_button(
+                    text="Управление подпиской",
+                    callback_data="connect_vpn",
+                )
+            ]
+        )
+    buy_kwargs: dict = {"text": "💰 Купить подписку", "callback_data": "buy_vpn"}
+    if buy_primary:
+        buy_kwargs["style"] = STYLE_PRIMARY
+    rows.append([emoji_button(**buy_kwargs)])
+    if show_trial:
+        rows.append(
+            [emoji_button(text="🔥 Попробовать бесплатно", callback_data="trial_vpn")]
+        )
     rows.append(
         [
-            InlineKeyboardButton(
-                text="📋 Отзывы",
-                url=REVIEWS_URL,
-                style=STYLE_PRIMARY,
-            )
+            emoji_button(
+                text="💸 Заработок",
+                callback_data="earn_with_us",
+            ),
         ]
     )
+    if SUPPORT_URL:
+        rows.append(
+            [
+                emoji_button(
+                    text="Поддержка",
+                    url=SUPPORT_URL,
+                )
+            ]
+        )
+    if show_owner_panel:
+        rows.append(
+            [
+                emoji_button(
+                    text="⚙️ Панель партнёра",
+                    callback_data="owner_panel",
+                )
+            ]
+        )
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def keyboard_buy_menu() -> InlineKeyboardMarkup:
+    return create_kb(
+        1,
+        buy_vpn_self="👤 Для себя",
+        buy_gift="🎁 Подарить подписку",
+        back_to_main=BTN_BACK,
+    )
+
+
+def keyboard_earn_with_us(*, show_create_partner_bot: bool = True) -> InlineKeyboardMarkup:
+    kwargs: dict[str, str] = {
+        "partner_earn": "🔗 Партнерская ссылка",
+        "back_to_main": BTN_BACK,
+    }
+    if show_create_partner_bot:
+        kwargs["create_partner_bot"] = "🤖 Хочу своего ВПН бота"
+    return create_kb(1, **kwargs)
 
 
 def keyboard_buy_device_tier():
@@ -637,38 +679,53 @@ def keyboard_devices_confirm(slot_key: str, device_idx: int) -> InlineKeyboardMa
 def keyboard_partner_intro():
     return create_kb(
         1,
-        styles={
-            "partner_create_link": STYLE_SUCCESS,
-            "back_to_main": STYLE_PRIMARY,
-        },
-        partner_create_link='🔗 Создать партнёрскую ссылку',
-        back_to_main=BTN_BACK,
+        partner_create_link="🔗 Создать партнёрскую ссылку",
+        back_to_earn=BTN_BACK,
     )
 
 
-def keyboard_partner_dashboard(*, show_withdraw: bool = False):
-    kwargs = {"back_to_main": BTN_BACK}
-    styles = {"back_to_main": STYLE_PRIMARY}
+def keyboard_partner_dashboard(user_id: int, *, show_withdraw: bool = False):
+    bot_link = f"{BOT_URL}?start=partner_{user_id}"
+    share_text = (
+        f"Присоединяйся к {bot_display_name()} по моей партнёрской ссылке!\n\n"
+        f"🤖 Бот: {bot_link}"
+    )
+    rows: list[list[InlineKeyboardButton]] = [
+        [
+            emoji_button(
+                text="Пригласить друзей🫶",
+                url=(
+                    f"https://t.me/share/url?url={bot_link}"
+                    f"&text={urllib.parse.quote(share_text)}"
+                ),
+            )
+        ],
+    ]
     if show_withdraw:
-        kwargs["partner_withdraw"] = "💰 Создать заявку на вывод"
-        styles["partner_withdraw"] = STYLE_SUCCESS
-    return create_kb(1, styles=styles, **kwargs)
+        rows.append(
+            [
+                emoji_button(
+                    text="💰 Создать заявку на вывод",
+                    callback_data="partner_withdraw",
+                )
+            ]
+        )
+    rows.append([emoji_button(text=BTN_BACK, callback_data="back_to_earn")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def keyboard_partner_withdraw(support_url: str):
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(
+            emoji_button(
                 text="💬 Вывести деньги",
                 url=support_url,
-                style=STYLE_SUCCESS,
             )
         ],
         [
-            InlineKeyboardButton(
-                text="🔙 Назад",
+            emoji_button(
+                text=BTN_BACK,
                 callback_data="partner_earn",
-                style=STYLE_PRIMARY,
             )
         ],
     ])
@@ -692,10 +749,9 @@ def channel_keyboard(
     if show_owner_panel:
         rows.append(
             [
-                InlineKeyboardButton(
+                emoji_button(
                     text="⚙️ Панель партнёра",
                     callback_data="owner_panel",
-                    style=STYLE_PRIMARY,
                 )
             ]
         )
@@ -826,31 +882,23 @@ def keyboard_owner_users(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def keyboard_owner_main():
-    return create_kb(
-        1,
-        styles={
-            "owner_stats": STYLE_PRIMARY,
-            "owner_broadcast": STYLE_PRIMARY,
-            "owner_channel": STYLE_PRIMARY,
-            "owner_users": STYLE_PRIMARY,
-            "owner_prices": STYLE_SUCCESS,
-            "owner_trial": STYLE_PRIMARY,
-            "owner_create_bot": STYLE_SUCCESS,
-            "owner_admins": STYLE_PRIMARY,
-            "owner_balance": STYLE_SUCCESS,
-        },
+def keyboard_owner_main(*, has_menu_photo: bool = False):
+    kwargs = dict(
         owner_stats="📊 Статистика",
         owner_broadcast="📣 Рассылка",
         owner_channel="📢 Канал для подписки",
         owner_users="👥 Мои юзеры",
         owner_prices="💰 Мои цены",
         owner_trial="🎁 Триал",
+        owner_menu_photo="🖼 Картинка меню",
         owner_create_bot="🤖 Создание партнёрского бота",
         owner_admins="👤 Назначить администратора",
         owner_balance="💳 Баланс и вывод",
         back_to_main=BTN_BACK,
     )
+    if has_menu_photo:
+        kwargs["owner_menu_photo_clear"] = "🗑 Удалить картинку меню"
+    return create_kb(1, **kwargs)
 
 
 def keyboard_owner_admins() -> InlineKeyboardMarkup:

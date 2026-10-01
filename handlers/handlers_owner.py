@@ -27,6 +27,7 @@ from keyboard import (
 from lexicon import lexicon
 from logging_config import logger
 from tariff_resolve import OWNER_PRICE_SHORT
+from utils.menu_ui import edit_or_send_menu, send_menu_message
 
 router = Router()
 OWNER_USERS_PAGE_SIZE = 8
@@ -128,7 +129,7 @@ async def _save_partner_channel(
     await state.clear()
     await message.answer(
         f"✅ Канал настроен: {channel_url}\nОбязательная подписка включена.",
-        reply_markup=keyboard_owner_main(),
+        reply_markup=await _owner_menu_keyboard(),
     )
 
 
@@ -140,6 +141,7 @@ class OwnerFSM(StatesGroup):
     owner_user_search = State()
     admin_add = State()
     admin_remove = State()
+    menu_photo = State()
 
 
 def _parse_admin_tg_id(raw: str) -> int | None:
@@ -176,14 +178,20 @@ def _owner_balance_fields(settings: dict | None) -> tuple[int, int, int, int, in
     return total, own, child, paid, current
 
 
+async def _owner_menu_keyboard():
+    settings = await sql.get_bot_settings()
+    fid = (settings or {}).get("menu_photo_file_id")
+    return keyboard_owner_main(has_menu_photo=bool(fid and str(fid).strip()))
+
+
 async def send_owner_menu(target: Message | CallbackQuery):
     text = lexicon["owner_panel_intro"]
-    kb = keyboard_owner_main()
+    kb = await _owner_menu_keyboard()
     if isinstance(target, CallbackQuery):
-        await target.message.edit_text(text, reply_markup=kb)
+        await edit_or_send_menu(target, text, kb)
         await target.answer()
     else:
-        await target.answer(text, reply_markup=kb)
+        await edit_or_send_menu(target, text, kb)
 
 
 @router.callback_query(F.data == "owner_panel")
@@ -201,6 +209,8 @@ async def owner_stats(callback: CallbackQuery):
     month_start = now - timedelta(days=30)
 
     users = await sql.count_users()
+    took_sub = await sql.count_users_in_panel()
+    connected = await sql.count_users_connected()
     visits_today = await sql.count_bot_visits_since(today_start)
     visits_week = await sql.count_bot_visits_since(week_start)
     visits_month = await sql.count_bot_visits_since(month_start)
@@ -217,20 +227,66 @@ async def owner_stats(callback: CallbackQuery):
         partner_since_txt = "—"
 
     text = lexicon["owner_stats"].format(
-        users, visits_today, visits_week, visits_month,
-        total, own, child, paid, current, partner_since_txt,
+        users,
+        visits_today,
+        visits_week,
+        visits_month,
+        total,
+        own,
+        child,
+        paid,
+        current,
+        partner_since_txt,
+        took_sub,
+        connected,
     )
-    await callback.message.edit_text(text, reply_markup=create_kb(1, owner_panel=BTN_BACK))
+    await edit_or_send_menu(
+        callback,
+        text,
+        create_kb(1, owner_panel=BTN_BACK),
+    )
     await callback.answer()
+
+
+@router.callback_query(F.data == "owner_menu_photo")
+@_owner_only
+async def owner_menu_photo_start(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(OwnerFSM.menu_photo)
+    await edit_or_send_menu(
+        callback,
+        lexicon["owner_menu_photo_prompt"],
+        create_kb(1, owner_panel="❌ Отмена"),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "owner_menu_photo_clear")
+@_owner_only
+async def owner_menu_photo_clear(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await sql.update_bot_settings(menu_photo_file_id=None)
+    await callback.answer(lexicon["owner_menu_photo_removed"], show_alert=True)
+    await send_owner_menu(callback)
+
+
+@router.message(OwnerFSM.menu_photo, F.photo)
+@_owner_only
+async def owner_menu_photo_save(message: Message, state: FSMContext):
+    file_id = message.photo[-1].file_id
+    await sql.update_bot_settings(menu_photo_file_id=file_id)
+    await state.clear()
+    await message.answer(lexicon["owner_menu_photo_saved"])
+    await send_owner_menu(message)
 
 
 @router.callback_query(F.data == "owner_broadcast")
 @_owner_only
 async def owner_broadcast_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(OwnerFSM.broadcast_text)
-    await callback.message.edit_text(
+    await edit_or_send_menu(
+        callback,
         "✉️ Отправьте текст рассылки всем пользователям бота:",
-        reply_markup=create_kb(1, owner_panel="❌ Отмена"),
+        create_kb(1, owner_panel="❌ Отмена"),
     )
     await callback.answer()
 
@@ -253,7 +309,7 @@ async def owner_broadcast_send(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
         f"✅ Рассылка завершена.\nОтправлено: {sent}\nОшибок: {failed}",
-        reply_markup=keyboard_owner_main(),
+        reply_markup=await _owner_menu_keyboard(),
     )
 
 
@@ -279,9 +335,10 @@ async def owner_channel_menu(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     settings = await sql.get_bot_settings()
     required = bool(settings and settings.get("channel_required"))
-    await callback.message.edit_text(
+    await edit_or_send_menu(
+        callback,
         _owner_channel_status_text(settings),
-        reply_markup=keyboard_owner_channel(channel_required=required),
+        keyboard_owner_channel(channel_required=required),
     )
     await callback.answer()
 
@@ -290,14 +347,15 @@ async def owner_channel_menu(callback: CallbackQuery, state: FSMContext):
 @_owner_only
 async def owner_channel_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(OwnerFSM.channel_input)
-    await callback.message.edit_text(
+    await edit_or_send_menu(
+        callback,
         "📢 Настройка канала для обязательной подписки:\n\n"
         "• @юзернейм_вашего_канала или https://t.me/юзернейм_вашего_канала — публичный канал\n"
         "• chat_id (например -1001234567890) — публичный или приватный\n"
         "• перешлите пост из канала — если не знаете chat_id\n\n"
         "Ссылки-приглашения https://t.me/+... не подойдут.\n"
         "Бот должен быть администратором канала.",
-        reply_markup=create_kb(1, owner_channel="❌ Отмена"),
+        create_kb(1, owner_channel="❌ Отмена"),
     )
     await callback.answer()
 
@@ -312,9 +370,10 @@ async def owner_channel_disable(callback: CallbackQuery, state: FSMContext):
         channel_required=False,
     )
     settings = await sql.get_bot_settings()
-    await callback.message.edit_text(
+    await edit_or_send_menu(
+        callback,
         "✅ Обязательная подписка отключена.\n\n" + _owner_channel_status_text(settings),
-        reply_markup=keyboard_owner_channel(channel_required=False),
+        keyboard_owner_channel(channel_required=False),
     )
     await callback.answer()
 
@@ -515,20 +574,20 @@ async def _show_owner_users_list(
     text = notice + lexicon["owner_users_intro"].format(page + 1, total_pages)
     kb = keyboard_owner_users(buttons, page=page, total_pages=total_pages)
     if isinstance(target, CallbackQuery):
-        await target.message.edit_text(text, reply_markup=kb)
+        await edit_or_send_menu(target, text, kb)
         await target.answer()
     else:
-        await target.answer(text, reply_markup=kb)
+        await edit_or_send_menu(target, text, kb)
 
 
 async def _show_owner_user_detail(target: Message | CallbackQuery, user, *, page: int = 0):
     text = await _format_owner_user_detail(user)
     kb = create_kb(1, **{f"owner_users_page:{page}": "⬅️ Назад к списку"})
     if isinstance(target, CallbackQuery):
-        await target.message.edit_text(text, reply_markup=kb)
+        await edit_or_send_menu(target, text, kb)
         await target.answer()
     else:
-        await target.answer(text, reply_markup=kb)
+        await edit_or_send_menu(target, text, kb)
 
 
 @router.callback_query(F.data == "owner_users")
@@ -566,9 +625,10 @@ async def owner_user_view(callback: CallbackQuery, state: FSMContext):
 @_owner_only
 async def owner_users_search_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(OwnerFSM.owner_user_search)
-    await callback.message.edit_text(
+    await edit_or_send_menu(
+        callback,
         lexicon["owner_users_search"],
-        reply_markup=create_kb(1, owner_users="❌ Отмена"),
+        create_kb(1, owner_users="❌ Отмена"),
     )
     await callback.answer()
 
@@ -588,9 +648,10 @@ async def owner_users_search_query(message: Message, state: FSMContext):
         user = await sql.search_user_by_username(raw)
 
     if not user:
-        await message.answer(
+        await send_menu_message(
+            message.chat.id,
             "❌ Пользователь не найден.",
-            reply_markup=create_kb(1, owner_users="⬅️ К списку"),
+            create_kb(1, owner_users="⬅️ К списку"),
         )
         return
 
@@ -605,10 +666,10 @@ async def _show_owner_prices(target: Message | CallbackQuery, state: FSMContext,
     text = notice + lexicon["owner_prices_intro"]
     kb = keyboard_owner_prices(prices, overrides)
     if isinstance(target, CallbackQuery):
-        await target.message.edit_text(text, reply_markup=kb)
+        await edit_or_send_menu(target, text, kb)
         await target.answer()
     else:
-        await target.answer(text, reply_markup=kb)
+        await edit_or_send_menu(target, text, kb)
 
 
 @router.callback_query(F.data == "owner_prices")
@@ -630,9 +691,10 @@ async def owner_price_edit(callback: CallbackQuery, state: FSMContext):
     current = prices[key]
     await state.set_state(OwnerFSM.price_value)
     await state.update_data(price_key=key)
-    await callback.message.edit_text(
+    await edit_or_send_menu(
+        callback,
         lexicon["owner_price_edit"].format(label, base, current),
-        reply_markup=create_kb(1, owner_prices="❌ Отмена"),
+        create_kb(1, owner_prices="❌ Отмена"),
     )
     await callback.answer()
 
@@ -679,9 +741,10 @@ def _owner_create_bot_text(enabled: bool) -> str:
 
 async def _send_owner_create_bot(callback: CallbackQuery) -> None:
     enabled = await sql.is_partner_bot_creation_enabled()
-    await callback.message.edit_text(
+    await edit_or_send_menu(
+        callback,
         _owner_create_bot_text(enabled),
-        reply_markup=keyboard_owner_create_bot(enabled=enabled),
+        keyboard_owner_create_bot(enabled=enabled),
     )
     await callback.answer()
 
@@ -720,10 +783,10 @@ async def _send_owner_admins(target: Message | CallbackQuery, *, notice: str = "
     text = notice + await _owner_admins_list_text()
     kb = keyboard_owner_admins()
     if isinstance(target, CallbackQuery):
-        await target.message.edit_text(text, reply_markup=kb)
+        await edit_or_send_menu(target, text, kb)
         await target.answer()
     else:
-        await target.answer(text, reply_markup=kb)
+        await edit_or_send_menu(target, text, kb)
 
 
 @router.callback_query(F.data == "owner_admins")
@@ -737,9 +800,10 @@ async def owner_admins(callback: CallbackQuery, state: FSMContext):
 @_owner_only
 async def owner_admin_add_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(OwnerFSM.admin_add)
-    await callback.message.edit_text(
+    await edit_or_send_menu(
+        callback,
         lexicon["owner_admin_add_prompt"],
-        reply_markup=create_kb(1, owner_admins="❌ Отмена"),
+        create_kb(1, owner_admins="❌ Отмена"),
     )
     await callback.answer()
 
@@ -748,9 +812,10 @@ async def owner_admin_add_start(callback: CallbackQuery, state: FSMContext):
 @_owner_only
 async def owner_admin_remove_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(OwnerFSM.admin_remove)
-    await callback.message.edit_text(
+    await edit_or_send_menu(
+        callback,
         lexicon["owner_admin_remove_prompt"],
-        reply_markup=create_kb(1, owner_admins="❌ Отмена"),
+        create_kb(1, owner_admins="❌ Отмена"),
     )
     await callback.answer()
 
@@ -799,9 +864,10 @@ async def owner_trial(callback: CallbackQuery, state: FSMContext):
     settings = await sql.get_bot_settings()
     days = (settings or {}).get("trial_days", 3)
     await state.set_state(OwnerFSM.trial_days)
-    await callback.message.edit_text(
+    await edit_or_send_menu(
+        callback,
         f"🎁 Текущий триал: <b>{days}</b> дн.\nВведите новое значение ({TRIAL_DAYS_MIN}–{TRIAL_DAYS_MAX}):",
-        reply_markup=create_kb(1, owner_panel=BTN_BACK),
+        create_kb(1, owner_panel=BTN_BACK),
     )
     await callback.answer()
 
@@ -818,7 +884,7 @@ async def owner_trial_save(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
         f"✅ Триал: {days} дн." if ok else f"❌ {err}",
-        reply_markup=keyboard_owner_main(),
+        reply_markup=await _owner_menu_keyboard(),
     )
 
 
@@ -831,9 +897,10 @@ async def owner_balance(callback: CallbackQuery):
     can_withdraw = current >= PARTNER_MIN_WITHDRAW
     if can_withdraw:
         text += "\n\n" + lexicon["owner_withdraw_hint"]
-    await callback.message.edit_text(
+    await edit_or_send_menu(
+        callback,
         text,
-        reply_markup=keyboard_owner_balance(show_withdraw=can_withdraw),
+        keyboard_owner_balance(show_withdraw=can_withdraw),
     )
     await callback.answer()
 
@@ -850,7 +917,8 @@ async def owner_withdraw(callback: CallbackQuery):
         )
         return
     await callback.answer()
-    await callback.message.edit_text(
+    await edit_or_send_menu(
+        callback,
         lexicon["owner_withdraw_info"].format(current, PARTNER_SUPPORT_URL),
-        reply_markup=keyboard_owner_balance(show_withdraw=True),
+        keyboard_owner_balance(show_withdraw=True),
     )

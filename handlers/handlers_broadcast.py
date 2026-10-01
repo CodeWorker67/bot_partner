@@ -28,6 +28,7 @@ from keyboard import (
 )
 from logging_config import logger
 from telegram_ids import is_telegram_chat_id
+from utils.menu_ui import edit_or_send_menu, send_menu_message
 
 router = Router()
 
@@ -310,9 +311,10 @@ async def broadcast_start(message: Message, state: FSMContext):
         await message.answer("Эта команда доступна только администраторам.")
         return
     await state.clear()
-    await message.answer(
+    await edit_or_send_menu(
+        message,
         f"Отправьте сообщение для рассылки или нажмите «{BTN_BACK}» для отмены.",
-        reply_markup=_back_markup(),
+        _back_markup(),
     )
     await state.set_state(BroadcastState.waiting_for_message)
 
@@ -338,9 +340,10 @@ async def broadcast_waiting_for_message(message: Message, state: FSMContext):
         broadcast_content_type=message.content_type,
     )
 
-    await message.answer(
+    await edit_or_send_menu(
+        message,
         "Выберите категорию получателей:",
-        reply_markup=_category_markup(),
+        _category_markup(),
     )
     await state.set_state(BroadcastState.waiting_for_category)
 
@@ -353,9 +356,10 @@ async def broadcast_pick_category(callback: CallbackQuery, state: FSMContext):
         return
     await state.update_data(category=category)
     await callback.answer()
-    await callback.message.answer(
+    await edit_or_send_menu(
+        callback,
         "Отослать всем или только тем, кому сегодня ещё не отправляли рассылку?",
-        reply_markup=_audience_markup(),
+        _audience_markup(),
     )
     await state.set_state(BroadcastState.waiting_for_audience)
 
@@ -372,9 +376,10 @@ async def broadcast_pick_audience(callback: CallbackQuery, state: FSMContext):
         return
     await state.update_data(exclude_today_broadcast=exclude_today)
     await callback.answer()
-    await callback.message.answer(
+    await edit_or_send_menu(
+        callback,
         "Выберите клавиатуру под сообщением:",
-        reply_markup=_keyboard_type_markup(),
+        _keyboard_type_markup(),
     )
     await state.set_state(BroadcastState.waiting_for_keyboard)
 
@@ -388,11 +393,12 @@ async def broadcast_pick_keyboard(callback: CallbackQuery, state: FSMContext, bo
     await callback.answer()
     if mode == "custom":
         await state.update_data(keyboard_mode="custom", custom_kb_spec=[])
-        await callback.message.answer(
+        await edit_or_send_menu(
+            callback,
             "Добавьте кнопку — ниже список вариантов.\n"
             "Можно добавить «Кнопка-ссылка» (текст и URL), «Подарочная кнопка» (триал в панели) "
             "или завершить формирование.",
-            reply_markup=_custom_presets_markup(),
+            _custom_presets_markup(),
         )
         await state.set_state(BroadcastState.custom_kb)
         return
@@ -412,9 +418,10 @@ async def broadcast_custom_add_preset(callback: CallbackQuery, state: FSMContext
     _append_preset(spec, pid)
     await state.update_data(custom_kb_spec=spec)
     await callback.answer()
-    await callback.message.answer(
+    await edit_or_send_menu(
+        callback,
         f"Кнопка добавлена. Ваша клавиатура:\n{_format_kb_spec_lines(spec)}",
-        reply_markup=_custom_presets_markup(),
+        _custom_presets_markup(),
     )
 
 
@@ -470,9 +477,10 @@ async def broadcast_custom_trial_gift_days(message: Message, state: FSMContext):
         custom_kb_spec=spec,
         trial_gift_btn_text=None,
     )
-    await message.answer(
+    await edit_or_send_menu(
+        message,
         f"Кнопка добавлена. Ваша клавиатура:\n{_format_kb_spec_lines(spec)}",
-        reply_markup=_custom_presets_markup(),
+        _custom_presets_markup(),
     )
     await state.set_state(BroadcastState.custom_kb)
 
@@ -493,9 +501,10 @@ async def broadcast_custom_link_url(message: Message, state: FSMContext):
         await message.answer("Нужен корректный URL, начинающийся с http:// или https://")
         return
     await state.update_data(link_btn_url=message.text.strip())
-    await message.answer(
+    await edit_or_send_menu(
+        message,
         "Выберите цвет кнопки (акцент в клиентах Telegram):",
-        reply_markup=_link_style_choice_markup(),
+        _link_style_choice_markup(),
     )
     await state.set_state(BroadcastState.custom_link_style)
 
@@ -504,9 +513,10 @@ async def broadcast_custom_link_url(message: Message, state: FSMContext):
 async def broadcast_custom_link_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.update_data(link_btn_text=None, link_btn_url=None)
-    await callback.message.answer(
+    await edit_or_send_menu(
+        callback,
         "Добавление кнопки-ссылки отменено.\nДобавьте кнопку или завершите формирование:",
-        reply_markup=_custom_presets_markup(),
+        _custom_presets_markup(),
     )
     await state.set_state(BroadcastState.custom_kb)
 
@@ -546,9 +556,10 @@ async def broadcast_custom_link_pick_style(callback: CallbackQuery, state: FSMCo
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
-    await callback.message.answer(
+    await edit_or_send_menu(
+        callback,
         f"Кнопка добавлена. Ваша клавиатура:\n{_format_kb_spec_lines(spec)}",
-        reply_markup=_custom_presets_markup(),
+        _custom_presets_markup(),
     )
     await state.set_state(BroadcastState.custom_kb)
 
@@ -560,9 +571,10 @@ async def broadcast_custom_done(callback: CallbackQuery, state: FSMContext):
 
 
 async def _ask_pin_message(message: Message, state: FSMContext):
-    await message.answer(
+    await edit_or_send_menu(
+        message,
         "Прикрепить сообщение в чате у каждого получателя?",
-        reply_markup=_pin_markup(),
+        _pin_markup(),
     )
     await state.set_state(BroadcastState.waiting_for_pin)
 
@@ -630,10 +642,11 @@ async def _send_preview_and_confirm(message: Message, state: FSMContext, bot: Bo
         if data.get("pin_message")
         else "без прикрепления"
     )
-    await message.answer(
+    await edit_or_send_menu(
+        message,
         f"Подтвердить отправку {n} пользователям в категории «{cat_label}», "
         f"{scope}, {pin_label}?",
-        reply_markup=_confirm_markup(),
+        _confirm_markup(),
     )
     await state.set_state(BroadcastState.confirm_send)
 

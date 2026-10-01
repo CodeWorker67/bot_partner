@@ -4,6 +4,7 @@ from logging_config import logger
 from payments.process_payload import process_confirmed_payment
 from keyboard import keyboard_payment_cancel
 from lexicon import lexicon
+from utils.menu_ui import send_menu_message
 from payments.pay_platega import PlategaPayment
 
 
@@ -51,7 +52,11 @@ async def check_platega():
                             if new_status == 'canceled':
                                 user_id = payment.user_id
                                 cancel_text = lexicon['payment_cancel']
-                                await bot.send_message(user_id, cancel_text, reply_markup=keyboard_payment_cancel())
+                                await send_menu_message(
+                                    user_id,
+                                    cancel_text,
+                                    keyboard_payment_cancel(),
+                                )
 
                     else:
                         logger.debug(f"ℹ️ Статус платежа Platega SBP {transaction_id} не изменился: {new_status}")
@@ -110,7 +115,11 @@ async def check_platega_card():
                             if new_status == 'canceled':
                                 user_id = payment.user_id
                                 cancel_text = lexicon['payment_cancel']
-                                await bot.send_message(user_id, cancel_text, reply_markup=keyboard_payment_cancel())
+                                await send_menu_message(
+                                    user_id,
+                                    cancel_text,
+                                    keyboard_payment_cancel(),
+                                )
 
                     else:
                         logger.debug(f"ℹ️ Статус платежа PlategaCard {transaction_id} не изменился: {new_status}")
@@ -169,7 +178,11 @@ async def check_platega_crypto():
                             if new_status == 'canceled':
                                 user_id = payment.user_id
                                 cancel_text = lexicon['payment_cancel']
-                                await bot.send_message(user_id, cancel_text, reply_markup=keyboard_payment_cancel())
+                                await send_menu_message(
+                                    user_id,
+                                    cancel_text,
+                                    keyboard_payment_cancel(),
+                                )
 
                     else:
                         logger.debug(f"ℹ️ Статус платежа PlategaCrypto {transaction_id} не изменился: {new_status}")

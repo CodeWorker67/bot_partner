@@ -26,6 +26,7 @@ from wl_traffic.service import (
     restore_pro_squads_if_under_limit,
 )
 from wl_traffic.texts import format_wl_checker_traffic_purchase
+from utils.menu_ui import send_menu_message
 
 
 def _payment_rub(method: str, amount: int | float) -> int:
@@ -58,10 +59,10 @@ async def _credit_partner_commission(payer_uid: int, method: str, amount: int | 
         return
 
     try:
-        await bot.send_message(
+        await send_menu_message(
             partner_id,
             lexicon["partner_success"].format(commission),
-            reply_markup=create_kb(1, back_to_main=BTN_BACK),
+            create_kb(1, back_to_main=BTN_BACK),
         )
     except Exception as e:
         logger.error("partner notify {}: {}", partner_id, e)
@@ -84,10 +85,10 @@ async def _distribute_commissions(payer_uid: int, method: str, amount: int | flo
                 if ref_commission > 0:
                     await sql.add_ref_balance(ref_id, ref_commission)
                     try:
-                        await bot.send_message(
+                        await send_menu_message(
                             ref_id,
                             lexicon["ref_commission_success"].format(ref_commission),
-                            reply_markup=create_kb(1, back_to_main=BTN_BACK),
+                            create_kb(1, back_to_main=BTN_BACK),
                         )
                     except Exception as e:
                         logger.error("ref notify {}: {}", ref_id, e)
@@ -139,11 +140,10 @@ async def _process_traffic_topup(user_id: int, gb: int, method: str, amount: int
             logger.error("CHECKER_ID traffic purchase notify {}: {}", user_id, e)
 
     try:
-        await bot.send_message(
-            chat_id=user_id,
-            text=lexicon["wl_traffic_success"].format(gb=gb),
-            parse_mode="HTML",
-            reply_markup=create_kb(1, back_to_main=BTN_BACK),
+        await send_menu_message(
+            user_id,
+            lexicon["wl_traffic_success"].format(gb=gb),
+            create_kb(1, back_to_main=BTN_BACK),
         )
     except Exception as e:
         logger.error("traffic topup notify {}: {}", user_id, e)
@@ -195,10 +195,10 @@ async def process_confirmed_payment(payload: str) -> bool:
             gift_message = lexicon["payment_gift"].format(duration, "", gift_id)
             try:
                 await bot.send_message(user_id, gift_message, disable_web_page_preview=True)
-                await bot.send_message(
+                await send_menu_message(
                     user_id,
                     lexicon["payment_gift_faq"],
-                    reply_markup=create_kb(1, back_to_main=BTN_BACK),
+                    create_kb(1, back_to_main=BTN_BACK),
                 )
             except Exception as e:
                 logger.error("gift msg: {}", e)
@@ -245,10 +245,10 @@ async def process_confirmed_payment(payload: str) -> bool:
 
         sub_link = result_active.get("url", "-")
         try:
-            await bot.send_message(
+            await send_menu_message(
                 user_id,
                 lexicon["buy_success"].format(subscription_time, sub_link),
-                reply_markup=keyboard_sub_after_buy(sub_link),
+                keyboard_sub_after_buy(sub_link),
             )
         except Exception as e:
             logger.error("buy notify: {}", e)

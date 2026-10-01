@@ -7,6 +7,7 @@ from config import CHECKER_ID
 from keyboard import create_kb, STYLE_PRIMARY, STYLE_SUCCESS
 from lexicon import lexicon
 from logging_config import logger
+from utils.menu_ui import send_menu_message
 from telegram_ids import is_telegram_chat_id
 
 PUSH_ACTIVE_MINUTES = 7 * 24 * 60  # первые 7 дней после регистрации
@@ -75,11 +76,7 @@ def _keyboard_for(stage: PushStage):
 async def _send_push(user_id: int, stage: PushStage) -> None:
     message_text = lexicon[stage.lexicon_key]
     keyboard = _keyboard_for(stage)
-    await bot.send_message(
-        chat_id=user_id,
-        text=message_text,
-        reply_markup=keyboard,
-    )
+    await send_menu_message(user_id, message_text, keyboard)
 
 
 async def send_push_cron(debug: bool = False):

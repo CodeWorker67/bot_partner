@@ -16,6 +16,7 @@ from keyboard import (
 )
 from lexicon import lexicon
 from logging_config import logger
+from utils.menu_ui import send_menu_message
 from telegram_ids import is_telegram_chat_id
 
 router = Router()
@@ -99,10 +100,10 @@ async def _show_buy_self(callback: CallbackQuery) -> None:
             await message.delete()
         except TelegramBadRequest:
             pass
-    await bot.send_message(
-        chat_id=callback.from_user.id,
-        text=lexicon["buy"],
-        reply_markup=keyboard_buy_tiers(),
+    await send_menu_message(
+        callback.from_user.id,
+        lexicon["buy"],
+        keyboard_buy_tiers(),
     )
 
 

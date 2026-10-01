@@ -10,6 +10,7 @@ from keyboard import keyboard_payment_sbp, create_kb
 from lexicon import lexicon, payment_tariff_summary_pro
 from tariff_resolve import tariff_days_for_x3, tariff_rub_and_desc, device_from_tariff_key
 from logging_config import logger
+from utils.menu_ui import edit_or_send_menu, send_menu_message
 
 router = Router()
 
@@ -242,16 +243,21 @@ async def process_payment_sbp(callback: CallbackQuery):
                 text += '\n\nДля оплаты <b>подарочной подписки</b> перейдите по ссылке:'
             else:
                 text += '\n\nДля оплаты тарифа перейдите по ссылке:'
-            await callback.message.edit_text(
-                text=text,
-                reply_markup=keyboard_payment_sbp("💳 Оплатить через СБП", payment_info['url'])
+            await edit_or_send_menu(
+                callback,
+                text,
+                keyboard_payment_sbp("💳 Оплатить через СБП", payment_info['url']),
             )
             logger.info(f"Юзер {user_id} создал счет на оплату {'подарка' if gift_flag else ''} {rub_amount} руб")
 
         except Exception as e:
             error_message = f"Ошибка при создании счета: {str(e)}"
             logger.error(error_message)
-            await callback.message.answer(lexicon['error_payment'], reply_markup=create_kb(1, back_to_main='🔙 Назад'))
+            await send_menu_message(
+                callback.from_user.id,
+                lexicon['error_payment'],
+                create_kb(1, back_to_main='◀️ Назад'),
+            )
 
 
 @router.callback_query(F.data.startswith('card_'))
@@ -309,16 +315,21 @@ async def process_payment_card(callback: CallbackQuery):
                 text += '\n\nДля оплаты <b>подарочной подписки</b> перейдите по ссылке:'
             else:
                 text += '\n\nДля оплаты тарифа перейдите по ссылке:'
-            await callback.message.edit_text(
-                text=text,
-                reply_markup=keyboard_payment_sbp("💳 Оплатить по карте", payment_info['url'])
+            await edit_or_send_menu(
+                callback,
+                text,
+                keyboard_payment_sbp("💳 Оплатить по карте", payment_info['url']),
             )
             logger.info(f"Юзер {user_id} создал счет на оплату по карте {'подарка' if gift_flag else ''} {rub_amount} руб")
 
         except Exception as e:
             error_message = f"Ошибка при создании счета: {str(e)}"
             logger.error(error_message)
-            await callback.message.answer(lexicon['error_payment'], reply_markup=create_kb(1, back_to_main='🔙 Назад'))
+            await send_menu_message(
+                callback.from_user.id,
+                lexicon['error_payment'],
+                create_kb(1, back_to_main='◀️ Назад'),
+            )
 
 
 # @router.callback_query(F.data.startswith('crypto_'))

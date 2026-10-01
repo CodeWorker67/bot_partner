@@ -23,6 +23,7 @@ from wl_traffic.service import (
     wl_day_gb_for_panel_users,
     wl_traffic_day,
 )
+from utils.menu_ui import send_menu_message
 from wl_traffic.texts import (
     format_wl_checker_exceeded_report,
     format_wl_limit_exceeded,
@@ -39,11 +40,10 @@ async def _send_wl_limit_push(
     last_err: Exception | None = None
     for attempt in range(3):
         try:
-            await bot.send_message(
-                chat_id=billing_uid,
-                text=text,
-                parse_mode="HTML",
-                reply_markup=keyboard_wl_traffic_tariffs(back_callback="back_to_main"),
+            await send_menu_message(
+                billing_uid,
+                text,
+                keyboard_wl_traffic_tariffs(back_callback="back_to_main"),
             )
             return
         except TelegramNetworkError as e:
@@ -63,11 +63,10 @@ async def _send_wl_low_traffic_push(
     last_err: Exception | None = None
     for attempt in range(3):
         try:
-            await bot.send_message(
-                chat_id=billing_uid,
-                text=text,
-                parse_mode="HTML",
-                reply_markup=keyboard_wl_traffic_tariffs(back_callback="back_to_main"),
+            await send_menu_message(
+                billing_uid,
+                text,
+                keyboard_wl_traffic_tariffs(back_callback="back_to_main"),
             )
             return
         except TelegramNetworkError as e:

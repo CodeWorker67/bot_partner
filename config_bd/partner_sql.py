@@ -368,6 +368,7 @@ class PartnerSQL:
                     True if row.partner_bot_creation_enabled is None
                     else bool(row.partner_bot_creation_enabled)
                 ),
+                "menu_photo_file_id": row.menu_photo_file_id,
             }
 
     async def is_partner_bot_creation_enabled(self) -> bool:
@@ -629,6 +630,24 @@ class PartnerSQL:
         async with self.session_factory() as session:
             stmt = select(func.count()).select_from(Users).where(
                 Users.bot_id == BOT_ID, Users.is_delete == False
+            )
+            return (await session.execute(stmt)).scalar() or 0
+
+    async def count_users_in_panel(self) -> int:
+        async with self.session_factory() as session:
+            stmt = select(func.count()).select_from(Users).where(
+                Users.bot_id == BOT_ID,
+                Users.is_delete == False,
+                Users.in_panel == True,
+            )
+            return (await session.execute(stmt)).scalar() or 0
+
+    async def count_users_connected(self) -> int:
+        async with self.session_factory() as session:
+            stmt = select(func.count()).select_from(Users).where(
+                Users.bot_id == BOT_ID,
+                Users.is_delete == False,
+                Users.is_connect == True,
             )
             return (await session.execute(stmt)).scalar() or 0
 

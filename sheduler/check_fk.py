@@ -6,6 +6,7 @@ from config import API_FREEKASSA, SHOP_ID_FREEKASSA
 from config_bd.models import PaymentsFkSBP
 from keyboard import keyboard_payment_cancel
 from lexicon import lexicon
+from utils.menu_ui import send_menu_message
 from logging_config import logger
 from payments.pay_freekassa import FreekassaPayment
 from payments.process_payload import process_confirmed_payment
@@ -149,7 +150,11 @@ async def check_fk_sbp():
                         f"🔄 FreeKassa {payment_id}: {payment.status} → {new_status} (api={api_status})")
                     canceled_count += 1
                     cancel_text = lexicon['payment_cancel']
-                    await bot.send_message(payment.user_id, cancel_text, reply_markup=keyboard_payment_cancel())
+                    await send_menu_message(
+                        payment.user_id,
+                        cancel_text,
+                        keyboard_payment_cancel(),
+                    )
 
                 processed_count += 1
 

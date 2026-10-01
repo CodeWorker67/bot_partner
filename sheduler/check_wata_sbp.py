@@ -12,6 +12,7 @@ from payments.pay_wata import (
     wata_transactions_status_counts,
 )
 from payments.process_payload import process_confirmed_payment
+from utils.menu_ui import send_menu_message
 
 _EMPTY_API_EXPIRE = timedelta(days=1)
 
@@ -26,10 +27,10 @@ async def process_confirmed_wata_sbp(payment) -> None:
 async def _notify_wata_sbp_cancel(uid) -> None:
     if uid and int(uid) > 0:
         try:
-            await bot.send_message(
+            await send_menu_message(
                 int(uid),
                 lexicon["payment_cancel"],
-                reply_markup=keyboard_payment_cancel(),
+                keyboard_payment_cancel(),
             )
         except Exception as e:
             logger.error(f"WATA СБП cancel notify: {e}")
