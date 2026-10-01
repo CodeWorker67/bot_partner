@@ -363,8 +363,10 @@ def emojify(text: str) -> str:
     placeholders: list[str] = []
 
     def _hold(match: re.Match[str]) -> str:
+        idx = len(placeholders)
         placeholders.append(match.group(0))
-        return f"\x00{len(placeholders) - 1}\x00"
+        # Маркеры без \x00{i}\x00: иначе «\x002\x000\x003\x00» даёт ложное «\x000\x00».
+        return f"\uE000{idx}\uE001"
 
     protected = _EXISTING_TAG_RE.sub(_hold, text)
     protected = _HTML_TAG_RE.sub(_hold, protected)
@@ -382,8 +384,8 @@ def emojify(text: str) -> str:
         return f'<tg-emoji emoji-id="{eid}">{canon}</tg-emoji>'
 
     converted = _TOKEN_RE.sub(_repl, protected)
-    for i, raw in enumerate(placeholders):
-        converted = converted.replace(f"\x00{i}\x00", raw)
+    for i in range(len(placeholders) - 1, -1, -1):
+        converted = converted.replace(f"\uE000{i}\uE001", placeholders[i])
     return converted
 
 

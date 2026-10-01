@@ -166,7 +166,7 @@ async def subscription_manage_caption(
             sub_url = await x3.sublink(username)
             if sub_url:
                 lines.append(lexicon["sub_manage_import_label"])
-                lines.append(escape(str(sub_url)))
+                lines.append(f"<code>{escape(str(sub_url))}</code>")
 
     trafic_wl, limit_gb = await sql.get_wl_limits(uid)
     used_gb = await get_wl_used_gb_for_user(x3, uid, trafic_wl)

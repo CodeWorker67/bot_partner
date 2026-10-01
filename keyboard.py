@@ -253,13 +253,25 @@ def keyboard_buy_menu() -> InlineKeyboardMarkup:
 
 
 def keyboard_earn_with_us(*, show_create_partner_bot: bool = True) -> InlineKeyboardMarkup:
-    kwargs: dict[str, str] = {
-        "partner_earn": "🔗 Партнерская ссылка",
-        "back_to_main": BTN_BACK,
-    }
+    rows: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(
+                text="🔗 Партнерская ссылка",
+                callback_data="partner_earn",
+            )
+        ],
+    ]
     if show_create_partner_bot:
-        kwargs["create_partner_bot"] = "🤖 Хочу своего ВПН бота"
-    return create_kb(1, **kwargs)
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🤖 Хочу своего ВПН бота",
+                    callback_data="create_partner_bot",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(text=BTN_BACK, callback_data="back_to_main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def keyboard_buy_device_tier():
@@ -637,10 +649,16 @@ def keyboard_devices_confirm(slot_key: str, device_idx: int) -> InlineKeyboardMa
 
 
 def keyboard_partner_intro():
-    return create_kb(
-        1,
-        partner_create_link="🔗 Создать партнёрскую ссылку",
-        back_to_earn=BTN_BACK,
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔗 Создать партнёрскую ссылку",
+                    callback_data="partner_create_link",
+                )
+            ],
+            [InlineKeyboardButton(text=BTN_BACK, callback_data="back_to_earn")],
+        ]
     )
 
 
@@ -661,26 +679,28 @@ def keyboard_partner_dashboard(user_id: int, *, show_withdraw: bool = False):
     if show_withdraw:
         rows.append(
             [
-                emoji_button(
+                InlineKeyboardButton(
                     text="💰 Создать заявку на вывод",
                     callback_data="partner_withdraw",
                 )
             ]
         )
-    rows.append([emoji_button(text=BTN_BACK, callback_data="back_to_earn")])
+    rows.append(
+        [InlineKeyboardButton(text=BTN_BACK, callback_data="back_to_earn")]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def keyboard_partner_withdraw(support_url: str):
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            emoji_button(
+            InlineKeyboardButton(
                 text="💬 Вывести деньги",
                 url=support_url,
             )
         ],
         [
-            emoji_button(
+            InlineKeyboardButton(
                 text=BTN_BACK,
                 callback_data="partner_earn",
             )

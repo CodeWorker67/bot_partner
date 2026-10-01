@@ -1,3 +1,5 @@
+from html import escape
+
 from aiogram import Router, F
 from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, Message, ChatMemberUpdated
@@ -318,7 +320,11 @@ async def _send_partner_dashboard(callback: CallbackQuery) -> None:
     tg_id = callback.from_user.id
     user = await sql.get_user_object_by_user_id(tg_id)
     referrals = await sql.select_partner_count(tg_id)
-    payments_sum = await sql.select_partner_referrals_payments_sum(tg_id)
+    try:
+        payments_sum = await sql.select_partner_referrals_payments_sum(tg_id)
+    except Exception as e:
+        logger.warning("partner payments_sum failed user={}: {}", tg_id, e)
+        payments_sum = 0
     balance = (user.partner_balance or 0) if user else 0
     paid_out = (user.partner_pay or 0) if user else 0
     total_earned = balance + paid_out
@@ -327,7 +333,7 @@ async def _send_partner_dashboard(callback: CallbackQuery) -> None:
     await edit_or_send_menu(
         callback,
         lexicon["partner_dashboard"].format(
-            link=link,
+            link=escape(link),
             procent=PARTNER_PROCENT,
             referrals=referrals,
             payments_sum=payments_sum,
@@ -366,26 +372,42 @@ async def back_to_earn_cb(callback: CallbackQuery):
 
 @router.callback_query(F.data == "partner_earn")
 async def partner_program(callback: CallbackQuery):
-    await callback.answer()
-    user = await sql.get_user_object_by_user_id(callback.from_user.id)
-    if user and user.partner_flag:
-        await _send_partner_dashboard(callback)
-    else:
-        await edit_or_send_menu(
-            callback,
-            lexicon["partner_intro"].format(
-                procent=PARTNER_PROCENT,
-                min_sum=PARTNER_MIN_WITHDRAW,
-            ),
-            keyboard_partner_intro(),
+    try:
+        user = await sql.get_user_object_by_user_id(callback.from_user.id)
+        if user and user.partner_flag:
+            await _send_partner_dashboard(callback)
+        else:
+            await edit_or_send_menu(
+                callback,
+                lexicon["partner_intro"].format(
+                    procent=PARTNER_PROCENT,
+                    min_sum=PARTNER_MIN_WITHDRAW,
+                ),
+                keyboard_partner_intro(),
+            )
+    except Exception as e:
+        logger.exception("partner_earn failed user={}: {}", callback.from_user.id, e)
+        await callback.answer(
+            "Не удалось открыть партнёрский раздел. Попробуйте позже.",
+            show_alert=True,
         )
+        return
+    await callback.answer()
 
 
 @router.callback_query(F.data == "partner_create_link")
 async def partner_create_link(callback: CallbackQuery):
+    try:
+        await sql.update_partner_flag(callback.from_user.id, True)
+        await _send_partner_dashboard(callback)
+    except Exception as e:
+        logger.exception("partner_create_link failed user={}: {}", callback.from_user.id, e)
+        await callback.answer(
+            "Не удалось создать ссылку. Попробуйте позже.",
+            show_alert=True,
+        )
+        return
     await callback.answer()
-    await sql.update_partner_flag(callback.from_user.id, True)
-    await _send_partner_dashboard(callback)
 
 
 @router.callback_query(F.data == "partner_withdraw")
