@@ -5,7 +5,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQu
 
 from bot import sql
 from config import CRYPTOBOT_API_TOKEN, BOT_ID, ADMIN_IDS, BOT_URL
-from keyboard import create_kb, STYLE_PRIMARY
+from keyboard import create_kb
 from lexicon import lexicon, payment_tariff_summary_pro
 from tariff_resolve import tariff_days_for_x3, tariff_rub_and_desc, device_from_tariff_key
 from logging_config import logger
@@ -188,7 +188,6 @@ async def process_payment_crypto(callback: CallbackQuery):
             [InlineKeyboardButton(
                 text=f"💎 Оплатить криптовалютой ({rub_amount} ₽)",
                 url=result['url'],
-                style=STYLE_PRIMARY,
             )]
         ])
         await edit_or_send_menu(callback, text, pay_keyboard)

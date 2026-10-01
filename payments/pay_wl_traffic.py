@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from bot import bot
 from config import ADMIN_IDS, PAYMENT_MAX_PENDING_PER_USER
-from keyboard import BTN_BACK, STYLE_SUCCESS, create_kb, keyboard_payment_sbp, keyboard_payment_stars
+from keyboard import BTN_BACK, create_kb, keyboard_payment_sbp, keyboard_payment_stars
 from lexicon import lexicon
 from payments.pay_cryptobot import create_cryptobot_payment
 from payments.pay_freekassa import pay
@@ -148,7 +148,6 @@ async def wl_traffic_pay_crypto(callback: CallbackQuery):
             [InlineKeyboardButton(
                 text=f"💎 Оплатить криптой · {rub_amount} ₽",
                 url=result["url"],
-                style=STYLE_SUCCESS,
             )]
         ])
         await edit_or_send_menu(

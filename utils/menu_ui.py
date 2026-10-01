@@ -211,10 +211,6 @@ async def _replace_photo_message(
     caption: str,
     reply_markup: InlineKeyboardMarkup,
 ) -> None:
-    try:
-        await bot.delete_message(chat_id, message_id)
-    except TelegramBadRequest:
-        pass
     await bot.send_photo(
         chat_id,
         photo=photo_file_id,
@@ -222,6 +218,10 @@ async def _replace_photo_message(
         parse_mode="HTML",
         reply_markup=reply_markup,
     )
+    try:
+        await bot.delete_message(chat_id, message_id)
+    except TelegramBadRequest:
+        pass
 
 
 async def edit_or_send_menu(
