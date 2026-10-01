@@ -207,23 +207,20 @@ def keyboard_start(
         rows.append(
             [emoji_button(text="🔥 Попробовать бесплатно", callback_data="trial_vpn")]
         )
-    rows.append(
-        [
-            emoji_button(
-                text="💸 Заработок",
-                callback_data="earn_with_us",
-            ),
-        ]
-    )
+    earn_support_row: list[InlineKeyboardButton] = [
+        emoji_button(
+            text="💸 Заработок",
+            callback_data="earn_with_us",
+        ),
+    ]
     if SUPPORT_URL:
-        rows.append(
-            [
-                emoji_button(
-                    text="Поддержка",
-                    url=SUPPORT_URL,
-                )
-            ]
+        earn_support_row.append(
+            emoji_button(
+                text="Поддержка",
+                url=SUPPORT_URL,
+            )
         )
+    rows.append(earn_support_row)
     if show_owner_panel:
         rows.append(
             [
