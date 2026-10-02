@@ -4,7 +4,7 @@ from typing import Optional
 
 from bot import bot, sql
 from config import CHECKER_ID
-from keyboard import create_kb, STYLE_PRIMARY, STYLE_SUCCESS
+from keyboard import create_kb
 from lexicon import lexicon
 from logging_config import logger
 from utils.menu_ui import send_menu_message
@@ -60,14 +60,12 @@ def _keyboard_for(stage: PushStage):
     if stage.keyboard == 'buy_free':
         return create_kb(
             1,
-            styles={'buy_vpn': STYLE_PRIMARY, 'trial_vpn': STYLE_SUCCESS},
             buy_vpn='💰 Купить подписку',
             trial_vpn='✨ Попробовать бесплатно',
         )
     if stage.keyboard == 'connect':
         return create_kb(
             1,
-            styles={'connect_vpn': STYLE_PRIMARY},
             connect_vpn='🔗 Подключить ВПН',
         )
     return None

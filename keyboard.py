@@ -36,20 +36,26 @@ STYLE_DANGER = "danger"
 OPEN_SITE_CB = "open_site"
 
 
+def keyboard_back_to_main() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=BTN_BACK, callback_data="back_to_main")],
+        ]
+    )
+
+
 def keyboard_push_buy_reviews() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
                 text="🛒 Купить подписку",
                 callback_data="buy_vpn",
-                style=STYLE_SUCCESS,
             ),
         ],
         [
             InlineKeyboardButton(
                 text="📋 Отзывы",
                 url=REVIEWS_URL,
-                style=STYLE_PRIMARY,
             ),
         ],
     ])
@@ -89,25 +95,6 @@ def create_kb(
 
     kb_builder.row(*buttons, width=width)
     return kb_builder.as_markup()
-
-
-def keyboard_push_buy_reviews() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="🛒 Купить подписку",
-                callback_data="buy_vpn",
-                style=STYLE_SUCCESS,
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                text="📋 Отзывы",
-                url=REVIEWS_URL,
-                style=STYLE_PRIMARY,
-            ),
-        ],
-    ])
 
 
 def chanel_keyboard():
@@ -341,12 +328,6 @@ def keyboard_subscription_manage() -> InlineKeyboardMarkup:
 def keyboard_import_os():
     return create_kb(
         1,
-        styles={
-            "import_android": STYLE_PRIMARY,
-            "import_ios": STYLE_PRIMARY,
-            "import_windows": STYLE_PRIMARY,
-            "import_macos": STYLE_PRIMARY,
-        },
         import_android="🤖 Android",
         import_ios="🍎 iOS",
         import_windows="🖥️ Windows",
@@ -362,21 +343,18 @@ def keyboard_import_app(os_callback: str):
                 InlineKeyboardButton(
                     text="🔥 INCY",
                     callback_data=f"{os_callback}_incy",
-                    style=STYLE_PRIMARY,
                 )
             ],
             [
                 InlineKeyboardButton(
                     text="⭐️ Happ",
                     callback_data=f"{os_callback}_happ",
-                    style=STYLE_PRIMARY,
                 )
             ],
             [
                 InlineKeyboardButton(
                     text="📡 V2raytun",
                     callback_data=f"{os_callback}_v2",
-                    style=STYLE_PRIMARY,
                 )
             ],
             [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")],
@@ -392,7 +370,6 @@ def keyboard_import_sub(app_callback: str, links: list[tuple[str, str, str]]):
                 InlineKeyboardButton(
                     text=label[:64],
                     callback_data=f"{app_callback}_sub_{slot_key}",
-                    style=STYLE_PRIMARY,
                 )
             ]
         )
@@ -425,7 +402,7 @@ def keyboard_sub_after_buy(sub_url):
                     callback_data="buy_gift",
                 )
             ],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")],
+            [InlineKeyboardButton(text=BTN_BACK, callback_data="back_to_main")],
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -450,7 +427,7 @@ def keyboard_sub_after_free(sub_url):
                     callback_data="import",
                 )
             ],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")],
+            [InlineKeyboardButton(text=BTN_BACK, callback_data="back_to_main")],
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -471,7 +448,7 @@ def keyboard_payment_cancel():
                     callback_data="start_gift",
                 )
             ],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")],
+            [InlineKeyboardButton(text=BTN_BACK, callback_data="back_to_main")],
         ]
     )
     return keyboard
@@ -583,7 +560,6 @@ def keyboard_import_end(url_app: str) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="📥 Скачать приложение",
                     url=url_app,
-                    style=STYLE_PRIMARY,
                 )
             ],
             [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")],

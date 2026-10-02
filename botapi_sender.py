@@ -8,7 +8,6 @@ def send_message(chat_id, text, button_text, url):
     button = {
         "text": button_text,
         "url": url,
-        "style": "success"
     }
     reply_markup = {
         "inline_keyboard": [[button]]

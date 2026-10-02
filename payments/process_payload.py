@@ -14,7 +14,7 @@ from config import (
     REFERRAL_PROCENT,
     SOURCE_BOT_ID,
 )
-from keyboard import BTN_BACK, create_kb, keyboard_sub_after_buy
+from keyboard import BTN_BACK, create_kb, keyboard_back_to_main, keyboard_sub_after_buy
 from lead_tracker import post_payment_success, post_user_trial
 from lexicon import lexicon
 from logging_config import logger
@@ -198,7 +198,7 @@ async def process_confirmed_payment(payload: str) -> bool:
                 await send_menu_message(
                     user_id,
                     lexicon["payment_gift_faq"],
-                    create_kb(1, back_to_main=BTN_BACK),
+                    keyboard_back_to_main(),
                 )
             except Exception as e:
                 logger.error("gift msg: {}", e)
