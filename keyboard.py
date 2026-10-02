@@ -624,6 +624,11 @@ def keyboard_devices_confirm(slot_key: str, device_idx: int) -> InlineKeyboardMa
     )
 
 
+def partner_bot_link(user_id: int) -> str:
+    base = (BOT_URL or "").rstrip("/")
+    return f"{base}?start=partner_{user_id}"
+
+
 def keyboard_partner_intro():
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -638,8 +643,13 @@ def keyboard_partner_intro():
     )
 
 
-def keyboard_partner_dashboard(user_id: int, *, show_withdraw: bool = False):
-    bot_link = f"{BOT_URL}?start=partner_{user_id}"
+def keyboard_partner_dashboard(
+    user_id: int,
+    *,
+    show_withdraw: bool = False,
+    show_bot_qr: bool = True,
+):
+    bot_link = partner_bot_link(user_id)
     share_text = (
         f"Присоединяйся к {bot_display_name()} по моей партнёрской ссылке!\n\n"
         f"🤖 Бот: {bot_link}"
@@ -652,6 +662,15 @@ def keyboard_partner_dashboard(user_id: int, *, show_withdraw: bool = False):
             )
         ],
     ]
+    if show_bot_qr:
+        rows.append(
+            [
+                emoji_button(
+                    text="Показать QR-код на тг-бота",
+                    callback_data="partner_qr_bot",
+                )
+            ]
+        )
     if show_withdraw:
         rows.append(
             [

@@ -2,7 +2,16 @@ from html import escape
 
 from aiogram import Router, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, Message, ChatMemberUpdated
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    ChatMemberUpdated,
+    InaccessibleMessage,
+    InputMediaPhoto,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from bot import bot, sql, x3
 from channel_gate import needs_channel_block, require_channel_sub, send_channel_required, verify_channel_subscription
@@ -17,12 +26,14 @@ from keyboard import (
     keyboard_gift_tiers,
     keyboard_partner_dashboard,
     keyboard_partner_intro,
+    partner_bot_link,
     keyboard_partner_withdraw,
     keyboard_payment_methods,
     keyboard_ref_dashboard,
     keyboard_sub_after_buy,
     keyboard_subscription_manage,
 )
+from utils.custom_emoji import emojify
 from utils.menu_ui import (
     MAIN_MENU_BUTTON_TEXT,
     edit_or_send_menu,
@@ -31,6 +42,7 @@ from utils.menu_ui import (
     show_main_menu,
     subscription_manage_caption,
 )
+from utils.ref_qr import referral_link_qr_png
 from lexicon import lexicon, payment_tariff_summary_pro
 from lead_tracker import (
     post_user_registered,
@@ -316,8 +328,7 @@ async def ref_program_cb(callback: CallbackQuery):
     )
 
 
-async def _send_partner_dashboard(callback: CallbackQuery) -> None:
-    tg_id = callback.from_user.id
+async def _partner_dashboard_caption(tg_id: int) -> str:
     user = await sql.get_user_object_by_user_id(tg_id)
     referrals = await sql.select_partner_count(tg_id)
     try:
@@ -329,22 +340,57 @@ async def _send_partner_dashboard(callback: CallbackQuery) -> None:
     paid_out = (user.partner_pay or 0) if user else 0
     total_earned = balance + paid_out
     available = balance
-    link = f"{BOT_URL}?start=partner_{tg_id}"
+    link = partner_bot_link(tg_id)
+    return lexicon["partner_dashboard"].format(
+        link=escape(link),
+        procent=PARTNER_PROCENT,
+        referrals=referrals,
+        payments_sum=payments_sum,
+        total_earned=total_earned,
+        paid_out=paid_out,
+        balance=available,
+    )
+
+
+async def _partner_dashboard_keyboard(tg_id: int, *, show_bot_qr: bool = True):
+    user = await sql.get_user_object_by_user_id(tg_id)
+    available = (user.partner_balance or 0) if user else 0
+    return keyboard_partner_dashboard(
+        tg_id,
+        show_withdraw=available >= PARTNER_MIN_WITHDRAW,
+        show_bot_qr=show_bot_qr,
+    )
+
+
+async def _edit_message_qr_photo(
+    callback: CallbackQuery,
+    qr_url: str,
+    caption: str,
+    reply_markup: InlineKeyboardMarkup,
+) -> None:
+    message = callback.message
+    if message is None or isinstance(message, InaccessibleMessage) or not message.photo:
+        return
+    qr_bytes = referral_link_qr_png(qr_url)
+    try:
+        await message.edit_media(
+            media=InputMediaPhoto(
+                media=BufferedInputFile(qr_bytes, filename="partner_qr.png"),
+                caption=caption,
+                parse_mode="HTML",
+            ),
+            reply_markup=reply_markup,
+        )
+    except TelegramBadRequest as e:
+        logger.warning("partner QR edit_media failed uid={}: {}", callback.from_user.id, e)
+
+
+async def _send_partner_dashboard(callback: CallbackQuery) -> None:
+    tg_id = callback.from_user.id
     await edit_or_send_menu(
         callback,
-        lexicon["partner_dashboard"].format(
-            link=escape(link),
-            procent=PARTNER_PROCENT,
-            referrals=referrals,
-            payments_sum=payments_sum,
-            total_earned=total_earned,
-            paid_out=paid_out,
-            balance=available,
-        ),
-        keyboard_partner_dashboard(
-            tg_id,
-            show_withdraw=available >= PARTNER_MIN_WITHDRAW,
-        ),
+        await _partner_dashboard_caption(tg_id),
+        await _partner_dashboard_keyboard(tg_id),
     )
 
 
@@ -393,6 +439,19 @@ async def partner_program(callback: CallbackQuery):
         )
         return
     await callback.answer()
+
+
+@router.callback_query(F.data == "partner_qr_bot")
+async def partner_qr_bot_cb(callback: CallbackQuery):
+    await callback.answer()
+    uid = int(callback.from_user.id)
+    caption = emojify(await _partner_dashboard_caption(uid))
+    await _edit_message_qr_photo(
+        callback,
+        partner_bot_link(uid),
+        caption,
+        await _partner_dashboard_keyboard(uid, show_bot_qr=False),
+    )
 
 
 @router.callback_query(F.data == "partner_create_link")
