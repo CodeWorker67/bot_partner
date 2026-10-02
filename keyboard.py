@@ -383,7 +383,7 @@ def keyboard_sub_after_buy(sub_url):
         rows.append(
             [
                 InlineKeyboardButton(
-                    text="📋 В личный кабинет",
+                    text="🔗 ПОДКЛЮЧИТЬ ВПН",
                     url=sub_url,
                 )
             ]
@@ -414,7 +414,7 @@ def keyboard_sub_after_free(sub_url):
         rows.append(
             [
                 InlineKeyboardButton(
-                    text="📋 В личный кабинет",
+                    text="🔗 ПОДКЛЮЧИТЬ ВПН",
                     url=sub_url,
                 )
             ]
