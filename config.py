@@ -16,11 +16,11 @@ BOT_USERNAME: str = (os.environ.get("BOT_USERNAME") or "").lstrip("@")
 _source_bot_id = os.environ.get("SOURCE_BOT_ID")
 SOURCE_BOT_ID: int | None = int(_source_bot_id) if _source_bot_id and _source_bot_id.strip() else None
 
-_master_raw = (os.environ.get("MASTER_ID") or "").strip()
-MASTER_ID: int = int(_master_raw) if _master_raw else 8603141868
-PARTNER_PANEL_IDS: Set[int] = set(OWNER_TG_IDS)
-if MASTER_ID:
-    PARTNER_PANEL_IDS.add(MASTER_ID)
+_DEFAULT_MASTER_IDS = (8603141868, 5150478601)
+_master_ids = [int(x) for x in os.environ.get("MASTER_ID", "").split(",") if x.strip()]
+MASTER_IDS: Set[int] = set(_master_ids) if _master_ids else set(_DEFAULT_MASTER_IDS)
+MASTER_ID: int = _master_ids[0] if _master_ids else _DEFAULT_MASTER_IDS[0]
+PARTNER_PANEL_IDS: Set[int] = set(OWNER_TG_IDS) | MASTER_IDS
 
 MASTER_BOT_API_URL: str = (os.environ.get("MASTER_BOT_API_URL") or "https://bot.zoomersky.online").rstrip("/")
 MASTER_BOT_API_KEY: str | None = (os.environ.get("MASTER_BOT_API_KEY") or "").strip() or None
