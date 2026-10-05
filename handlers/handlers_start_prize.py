@@ -6,7 +6,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, InputMediaPhoto
 
 from bot import bot, sql
-from bot_display import is_casper_bot
+from bot_display import is_start_prize_bot, start_prize_photo_ids
 from config import CHECKER_ID
 from keyboard import (
     keyboard_buy_tiers,
@@ -24,19 +24,12 @@ router = Router()
 _USER_TUPLE_RESERVE_FIELD = 8
 _START_PRIZE_DELAY_SEC = 10
 _CLAIM_WATCH_SEC = 600
-_START_PRIZE_WIN_PHOTO = (
-    "AgACAgQAAxkBAAEGi9dqlwN7D_06zVVD-fhwAxeuI-NFMQACCxJrGyrruFDhDSQqwDBHrQEAAwIAA3kAAz0E"
-)
-_START_PRIZE_DISCOUNT_PHOTO = (
-    "AgACAgQAAxkBAAEGi81qlwAB7nQu0AayUJyF4mdiwvVmM4cAAgQSaxsq67hQwsXm0NDMQHYBAAMCAAN5AAM9BA"
-)
-
 _prize_scheduled: set[int] = set()
 _claim_watchers: set[int] = set()
 
 
 def schedule_start_prize(user_id: int) -> None:
-    if not is_casper_bot() or not is_telegram_chat_id(user_id):
+    if not is_start_prize_bot() or not is_telegram_chat_id(user_id):
         return
     if user_id in _prize_scheduled:
         return
@@ -108,11 +101,16 @@ async def _show_buy_self(callback: CallbackQuery) -> None:
 
 
 async def _send_start_prize_later(user_id: int) -> None:
+    photos = start_prize_photo_ids()
+    if not photos:
+        _prize_scheduled.discard(user_id)
+        return
+    win_photo, _ = photos
     try:
         await asyncio.sleep(_START_PRIZE_DELAY_SEC)
         await bot.send_photo(
             chat_id=user_id,
-            photo=_START_PRIZE_WIN_PHOTO,
+            photo=win_photo,
             caption=lexicon["start_prize_win"],
             parse_mode="HTML",
             reply_markup=keyboard_start_prize_reveal(),
@@ -124,6 +122,10 @@ async def _send_start_prize_later(user_id: int) -> None:
 
 
 async def _watch_claim_purchase(user_id: int) -> None:
+    photos = start_prize_photo_ids()
+    if not photos:
+        return
+    _, discount_photo = photos
     try:
         await asyncio.sleep(_CLAIM_WATCH_SEC)
         user_data = await sql.get_user(user_id)
@@ -143,7 +145,7 @@ async def _watch_claim_purchase(user_id: int) -> None:
 
         await bot.send_photo(
             chat_id=user_id,
-            photo=_START_PRIZE_DISCOUNT_PHOTO,
+            photo=discount_photo,
             caption=lexicon["start_prize_hurry"],
             parse_mode="HTML",
             reply_markup=keyboard_start_prize_hurry(),
@@ -159,12 +161,14 @@ async def _watch_claim_purchase(user_id: int) -> None:
 async def start_prize_reveal(callback: CallbackQuery):
     uid = callback.from_user.id
     await callback.answer()
-    if not is_casper_bot():
+    photos = start_prize_photo_ids()
+    if not photos:
         return
+    _, discount_photo = photos
     try:
         await _edit_prize_photo(
             callback,
-            _START_PRIZE_DISCOUNT_PHOTO,
+            discount_photo,
             lexicon["start_prize_reveal"],
             keyboard_start_prize_claim(),
         )
@@ -181,7 +185,7 @@ async def start_prize_reveal(callback: CallbackQuery):
 @router.callback_query(F.data == "start_prize_claim")
 async def start_prize_claim(callback: CallbackQuery):
     await callback.answer()
-    if not is_casper_bot():
+    if not is_start_prize_bot():
         return
     try:
         await _show_buy_self(callback)
@@ -192,7 +196,7 @@ async def start_prize_claim(callback: CallbackQuery):
 @router.callback_query(F.data == "start_prize_hurry")
 async def start_prize_hurry(callback: CallbackQuery):
     await callback.answer()
-    if not is_casper_bot():
+    if not is_start_prize_bot():
         return
     try:
         await _show_buy_self(callback)

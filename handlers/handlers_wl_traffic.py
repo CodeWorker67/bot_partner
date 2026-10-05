@@ -7,6 +7,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery
 
 from bot import sql, x3
+from config_bd.partner_sql import user_has_active_pro_subscription
 from keyboard import (
     BTN_BACK,
     create_kb,
@@ -78,6 +79,11 @@ async def user_profile_cb(callback: CallbackQuery):
 
 @router.callback_query(F.data.in_({WL_TRAFFIC_BUY_CB, WL_TRAFFIC_BUY_SUB_CB}))
 async def wl_traffic_buy_cb(callback: CallbackQuery):
+    user = await sql.get_user_object_by_user_id(callback.from_user.id)
+    if not user or not user_has_active_pro_subscription(user):
+        await callback.answer("В начале купите подписку!", show_alert=True)
+        return
+
     back_callback = PROFILE_CB if callback.data == WL_TRAFFIC_BUY_CB else BUY_VPN_CB
     await callback.answer()
     await edit_or_send_menu(
