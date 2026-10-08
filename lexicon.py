@@ -22,9 +22,10 @@ _BUY_OUTRO = (
     '⬇️ Выберите тариф ⬇️'
 )
 
-_PAYMENT_PRO_HEAD = 'Тариф — 💫 {bot_name} PRO\nМножество серверов на выбор.\n'
-_PAYMENT_PRO_3_LINE = '3 устройства, безлимитный трафик.'
-_PAYMENT_PRO_5_LINE = '5 устройств, безлимитный трафик.'
+_PAYMENT_SERVERS_LINE = '12 серверов на выбор.'
+_PAYMENT_PRO_HEAD = 'Тариф — 💫 {bot_name} PRO\n' + _PAYMENT_SERVERS_LINE + '\n'
+_PAYMENT_PRO_3_LINE = '3 устройства, безлимитный трафик, обход белых листов.'
+_PAYMENT_PRO_5_LINE = '5 устройств, безлимитный трафик, обход белых листов.'
 
 
 def buy_text_for_pro_hwid(device_limit: int) -> str:
@@ -824,16 +825,18 @@ def payment_tariff_summary_pro(desc_key: str, prices: dict | None = None) -> str
     days = tariff_days_for_x3(duration_plain)
     wl_bonus = format_wl_bonus_suffix(days)
 
+    traffic_line = f'{dev_phrase}, безлимитный трафик, обход белых листов.'
+
     if days >= 5000 or duration_plain in ('5000', '5000sale'):
         if duration_plain == '5000sale':
             price_line = f'Сумма к оплате по акции - {price}₽'
         else:
             price_line = f'Сумма к оплате - {price}₽'
         return (
-            f'Тариф — 💫 {dev_phrase}\n'
-            f'5 серверов на выбор.\n'
-            f'{dev_phrase}, безлимитный трафик.\n'
-            f'Длительность - навсегда\n'
+            f'Тариф — 💫 Навсегда\n'
+            f'{_PAYMENT_SERVERS_LINE}\n'
+            f'{traffic_line}\n'
+            f'Длительность - Навсегда\n'
             f'\n'
             f'{price_line}'
             f'{wl_bonus}'
@@ -848,8 +851,8 @@ def payment_tariff_summary_pro(desc_key: str, prices: dict | None = None) -> str
 
     return (
         f'Тариф — 💫 {dev_phrase}\n'
-        f'5 серверов на выбор.\n'
-        f'{dev_phrase}, безлимитный трафик.\n'
+        f'{_PAYMENT_SERVERS_LINE}\n'
+        f'{traffic_line}\n'
         f'{dur_line}\n'
         f'\n'
         f'Сумма к оплате - {price}₽'
