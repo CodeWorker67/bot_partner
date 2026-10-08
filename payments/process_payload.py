@@ -184,6 +184,16 @@ async def process_confirmed_payment(payload: str) -> bool:
 
         duration = int(duration_raw)
 
+        if duration >= 5000:
+            from bot_display import is_forever_tariff_bot
+
+            if not is_forever_tariff_bot():
+                logger.error(
+                    "forever tariff payment rejected: bot is not forever-enabled, user={}",
+                    user_id,
+                )
+                return False
+
         if method == "stars":
             await sql.add_payment_stars(user_id, amount, is_gift, payload)
 

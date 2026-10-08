@@ -117,6 +117,18 @@ lexicon = {
 
     'wl_bonus_line': '\n\n📡 Антиглушилка: <b>+{gb:g} GB</b> трафика включено в тариф.',
 
+    'wl_bonus_line_forever': (
+        '\n\n📡 Антиглушилка: <b>+{gb:g} GB</b> сразу при активации,\n'
+        'далее <b>+{gb:g} GB каждый месяц</b> (1-го числа) ♾'
+    ),
+
+    'wl_forever_monthly_credit': (
+        '♾ <b>Пополнение тарифа Навсегда</b>\n\n'
+        '📡 Вам добавлено <b>10 ГБ</b> трафика к лимиту для сервера <b>Антиглушилка</b>.\n\n'
+        '📅 Следующее пополнение — <b>1-го числа следующего месяца</b>.\n'
+        'Приятного пользования! 🚀'
+    ),
+
     'user_profile': (
         '👤 <b>Ваш профиль</b>\n\n'
         '📅 Подписка активна до: <b>{sub_end}</b>\n\n'
@@ -678,6 +690,7 @@ dct_price = {
     'm3_d10': 1349,
     'm6_d10': 2399,
     'm12_d10': 3239,
+    '5000': 4990,
 }
 
 # Устаревшие цены для callback gift_r_new_* / stars new_* (старые сообщения в чатах).
@@ -712,6 +725,7 @@ dct_desc = {
     'm3_d10': '🏆 3 мес - 🔟 устройств - 1349 ₽ (выгода -32%)',
     'm6_d10': '🏆 6 мес - 🔟 устройств - 2399 ₽ (выгода -39%)',
     'm12_d10': '🏆 12 мес - 🔟 устройств - 3239 ₽ (выгода -59%)',
+    '5000': '♾ Навсегда — 4990 ₽',
 }
 
 dct_desc_friends = {
@@ -805,16 +819,26 @@ def payment_tariff_summary_pro(desc_key: str, prices: dict | None = None) -> str
     devices = device_from_tariff_key(duration_plain)
     dev_phrase = _ru_device_phrase(devices)
 
+    days = tariff_days_for_x3(duration_plain)
+    wl_bonus = format_wl_bonus_suffix(days)
+
+    if days >= 5000 or duration_plain == '5000':
+        return (
+            f'Тариф — 💫 {dev_phrase}\n'
+            f'5 серверов на выбор.\n'
+            f'{dev_phrase}, безлимитный трафик.\n'
+            f'Длительность - навсегда\n'
+            f'\n'
+            f'Сумма к оплате - {price}₽'
+            f'{wl_bonus}'
+        )
+
     m = re.fullmatch(r'm(\d+)_d(\d+)', duration_plain)
     if m:
         months = int(m.group(1))
         dur_line = _ru_month_duration_line(months)
-        days = tariff_days_for_x3(duration_plain)
     else:
-        days = tariff_days_for_x3(duration_plain)
         dur_line = _ru_days_duration_line(days)
-
-    wl_bonus = format_wl_bonus_suffix(days)
 
     return (
         f'Тариф — 💫 {dev_phrase}\n'

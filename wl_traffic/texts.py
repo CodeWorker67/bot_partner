@@ -3,14 +3,20 @@ from __future__ import annotations
 
 from lexicon import lexicon
 
-from wl_traffic.service import subscription_bonus_gb
+from wl_traffic.service import is_forever_duration, subscription_bonus_gb
 
 
 def format_wl_bonus_suffix(duration_days: int) -> str:
     bonus = subscription_bonus_gb(duration_days)
     if bonus <= 0:
         return ""
+    if is_forever_duration(duration_days):
+        return lexicon["wl_bonus_line_forever"].format(gb=bonus)
     return lexicon["wl_bonus_line"].format(gb=bonus)
+
+
+def format_wl_forever_monthly_credit() -> str:
+    return lexicon["wl_forever_monthly_credit"]
 
 
 def format_pro_payment_link(duration_days: int) -> str:

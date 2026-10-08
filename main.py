@@ -13,6 +13,7 @@ from logging_config import logger
 from middleware.user_activity import UserActivityMiddleware
 from payments import pay_cryptobot, pay_freekassa, pay_stars, pay_wl_traffic
 from sheduler.accumulate_wl_traffic import accumulate_wl_traffic_cron
+from sheduler.credit_forever_wl_monthly import credit_forever_wl_monthly_cron
 from sheduler.backup_db import send_db_backup_cron
 from sheduler.check_connect import check_connect
 from sheduler.check_cryptobot import check_cryptobot_payments
@@ -64,6 +65,16 @@ async def main() -> None:
         minute=WL_ACCUMULATE_MINUTE,
         id="accumulate_wl_traffic",
         misfire_grace_time=120,
+    )
+    scheduler.add_job(
+        credit_forever_wl_monthly_cron,
+        trigger="cron",
+        day=1,
+        hour=0,
+        minute=5,
+        args=[bot],
+        id="wl_forever_monthly",
+        misfire_grace_time=3600,
     )
     scheduler.add_job(
         check_wl_traffic_cron,

@@ -44,7 +44,11 @@ dct_desc: Dict[str, str] = {
     "m3_d10": "3 месяца · 10 устройств",
     "m6_d10": "6 месяцев · 10 устройств",
     "m12_d10": "12 месяцев · 10 устройств",
+    "5000": "Навсегда · 5 устройств",
 }
+
+
+FOREVER_TARIFF_KEY = "5000"
 
 
 def panel_username(tg_id: int, bot_id: int | None = None, *, device_slots: int = 5, white: bool = False) -> str:
@@ -67,6 +71,8 @@ def device_from_tariff_key(duration_key_plain: str) -> int:
 
 
 def tariff_days_for_x3(duration_key_plain: str) -> int:
+    if duration_key_plain in (FOREVER_TARIFF_KEY,):
+        return 5000
     if duration_key_plain.startswith("new_"):
         if duration_key_plain == "new_3000":
             return 3000
@@ -106,6 +112,12 @@ def tariff_savings_pct(tariff_key: str, prices: Dict[str, int] | None = None) ->
         return None
     pct = round((1 - price / full_price) * 100)
     return pct if pct > 0 else None
+
+
+def forever_tariff_button_label(prices: Dict[str, int] | None = None) -> str:
+    p = prices or DEFAULT_PRICES
+    price = p.get(FOREVER_TARIFF_KEY, DEFAULT_PRICES.get(FOREVER_TARIFF_KEY, 4990))
+    return f"♾ Навсегда — {price} ₽"
 
 
 def tariff_button_label(tariff_key: str, prices: Dict[str, int] | None = None) -> str:

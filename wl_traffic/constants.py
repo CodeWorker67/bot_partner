@@ -1,5 +1,6 @@
 """Константы лимита трафика Антиглушилка (белая нода YANDEX-RU-001)."""
 
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 WL_NODE_NAME = "YANDEX-RU-001"
@@ -29,6 +30,11 @@ WL_GB_PER_MONTH = 10
 WL_TRIAL_LIMIT_GB = 2.0
 WL_LOW_TRAFFIC_WARNING_GB = 1.0
 
+# Тариф «Навсегда» (5000 дней) — expire далеко за 2030
+FOREVER_DURATION_DAYS = 5000
+FOREVER_YEAR_THRESHOLD = 2030
+FOREVER_END_CUTOFF = datetime(FOREVER_YEAR_THRESHOLD, 1, 1)
+
 # gb -> price (₽), от большего к меньшему
 WL_TRAFFIC_TARIFFS: dict[str, int] = {
     "500": 1249,
@@ -46,6 +52,7 @@ WL_SUBSCRIPTION_MONTHS: dict[int, int] = {
     90: 3,
     180: 6,
     365: 12,
+    FOREVER_DURATION_DAYS: 1,
 }
 
 PROFILE_CB = "user_profile"

@@ -11,6 +11,8 @@ from config import BOT_ID
 from tariff_resolve import panel_username
 
 from wl_traffic.constants import (
+    FOREVER_DURATION_DAYS,
+    FOREVER_END_CUTOFF,
     WL_DAY_RESET_HOUR,
     WL_GB_PER_MONTH,
     WL_LEGACY_RETRIES,
@@ -62,9 +64,28 @@ def is_wl_check_skip_window(now: datetime | None = None) -> bool:
     return False
 
 
+def is_forever_duration(duration_days: int) -> bool:
+    """Тариф «Навсегда» (5000+ дней)."""
+    return int(duration_days) >= FOREVER_DURATION_DAYS
+
+
+def is_forever_end_date(end_date: datetime | date | None) -> bool:
+    """Подписка «Навсегда»: дата окончания с 2030 года и далее."""
+    if end_date is None:
+        return False
+    if isinstance(end_date, date) and not isinstance(end_date, datetime):
+        return end_date >= FOREVER_END_CUTOFF.date()
+    dt = end_date
+    if getattr(dt, "tzinfo", None) is not None:
+        dt = dt.replace(tzinfo=None)
+    return dt >= FOREVER_END_CUTOFF
+
+
 def subscription_bonus_gb(duration_days: int) -> float:
     if duration_days == 7:
         return 3.0
+    if is_forever_duration(duration_days):
+        return float(WL_GB_PER_MONTH)
     months = WL_SUBSCRIPTION_MONTHS.get(duration_days, max(0, duration_days // 30))
     return float(months * WL_GB_PER_MONTH)
 

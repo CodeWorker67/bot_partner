@@ -4,10 +4,10 @@ from typing import List, Optional
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot_display import bot_display_name
+from bot_display import bot_display_name, is_forever_tariff_bot
 from config import BOT_URL, SUPPORT_URL, TARIFF_KEYS
 from utils.custom_emoji import emoji_button
-from tariff_resolve import OWNER_PRICE_SHORT, tariff_button_label
+from tariff_resolve import OWNER_PRICE_SHORT, forever_tariff_button_label, tariff_button_label
 from wl_traffic.constants import (
     BUY_VPN_CB,
     PROFILE_CB,
@@ -281,6 +281,8 @@ def keyboard_buy_duration(devices: int, prices: dict | None = None) -> InlineKey
         ck = f"r_m{months}_d{devices}"
         dk = f"m{months}_d{devices}"
         kwargs[ck] = tariff_button_label(dk, prices)
+    if devices == 5 and is_forever_tariff_bot():
+        kwargs["r_5000"] = forever_tariff_button_label(prices)
     kwargs["back_buy_tier"] = BTN_BACK
     return create_kb(1, **kwargs)
 

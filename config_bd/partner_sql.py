@@ -1166,6 +1166,23 @@ class PartnerSQL:
                 row.last_closed_date = day
             await session.commit()
 
+    async def select_forever_active_users(self) -> List[int]:
+        """Активные пользователи тарифа Навсегда (5 устройств, end_date >= 2030-01-01)."""
+        from wl_traffic.constants import FOREVER_END_CUTOFF
+
+        async with self.session_factory() as session:
+            now = datetime.now()
+            stmt = select(Users.user_id).where(
+                Users.bot_id == BOT_ID,
+                Users.is_delete == False,
+                Users.in_panel == True,
+                Users.subscription_end_date.isnot(None),
+                Users.subscription_end_date > now,
+                Users.subscription_end_date >= FOREVER_END_CUTOFF,
+            )
+            result = await session.execute(stmt)
+            return [int(r[0]) for r in result.all()]
+
     async def select_users_active_subscription(self) -> List[Tuple[int, float, float, bool]]:
         from wl_traffic.constants import WL_TIMEZONE
 

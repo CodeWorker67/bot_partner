@@ -14,6 +14,7 @@ from aiogram.types import (
 )
 
 from bot import bot, sql, x3
+from bot_display import is_forever_tariff_bot
 from channel_gate import needs_channel_block, require_channel_sub, send_channel_required, verify_channel_subscription
 from config import BOT_ID, BOT_URL, PARTNER_MIN_WITHDRAW, PARTNER_PROCENT, PARTNER_SUPPORT_URL, REFERRAL_PROCENT, SUPPORT_URL
 from keyboard import (
@@ -251,12 +252,15 @@ async def buy_tier_chosen(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data.startswith("r_m"))
+@router.callback_query(F.data.startswith("r_m") | (F.data == "r_5000"))
 @require_channel_sub
 async def process_payment_method(callback: CallbackQuery):
     prices = await get_prices(sql)
     tarif_cb = callback.data
     price_key = tarif_cb.replace("r_", "", 1)
+    if price_key == "5000" and not is_forever_tariff_bot():
+        await callback.answer("Тариф недоступен", show_alert=True)
+        return
     amount, desc = tariff_rub_and_desc(price_key, prices)
     device = device_from_tariff_key(price_key)
     summary = payment_tariff_summary_pro(price_key, prices)

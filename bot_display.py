@@ -4,6 +4,7 @@ from __future__ import annotations
 from aiogram import Bot
 
 CASPER_BOT_USERNAME = "casper77bot"
+FOREVER_TARIFF_BOT_USERNAME = "thtemhmsldjqioszfxbot"
 
 # username (lower) -> (win photo file_id, discount photo file_id)
 START_PRIZE_BOT_PHOTOS: dict[str, tuple[str, str]] = {
@@ -40,6 +41,11 @@ def _resolved_bot_username_lower() -> str:
 
 def is_casper_bot() -> bool:
     return _resolved_bot_username_lower() == CASPER_BOT_USERNAME
+
+
+def is_forever_tariff_bot() -> bool:
+    """Тариф «Навсегда» (5000 дней, 5 устройств) только для @ThteMhmSLdJqiOSzFXbot."""
+    return _resolved_bot_username_lower() == FOREVER_TARIFF_BOT_USERNAME
 
 
 def start_prize_photo_ids() -> tuple[str, str] | None:
