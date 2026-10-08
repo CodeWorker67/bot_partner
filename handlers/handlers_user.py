@@ -252,13 +252,15 @@ async def buy_tier_chosen(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data.startswith("r_m") | (F.data == "r_5000"))
+@router.callback_query(
+    F.data.startswith("r_m") | (F.data == "r_5000") | (F.data == "r_5000sale")
+)
 @require_channel_sub
 async def process_payment_method(callback: CallbackQuery):
     prices = await get_prices(sql)
     tarif_cb = callback.data
     price_key = tarif_cb.replace("r_", "", 1)
-    if price_key == "5000" and not is_forever_tariff_bot():
+    if price_key in ("5000", "5000sale") and not is_forever_tariff_bot():
         await callback.answer("Тариф недоступен", show_alert=True)
         return
     amount, desc = tariff_rub_and_desc(price_key, prices)

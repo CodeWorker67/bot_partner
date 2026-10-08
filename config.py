@@ -100,6 +100,7 @@ DEFAULT_PRICES: Dict[str, int] = {
     "m6_d10": _price_env("m6_d10", 2399),
     "m12_d10": _price_env("m12_d10", 3239),
     "5000": _price_env("5000", 4990),
+    "5000sale": _price_env("5000sale", 2790),
 }
 
 MIN_PRICES: Dict[str, int] = dict(DEFAULT_PRICES)

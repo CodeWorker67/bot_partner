@@ -691,6 +691,7 @@ dct_price = {
     'm6_d10': 2399,
     'm12_d10': 3239,
     '5000': 4990,
+    '5000sale': 2790,
 }
 
 # Устаревшие цены для callback gift_r_new_* / stars new_* (старые сообщения в чатах).
@@ -726,6 +727,7 @@ dct_desc = {
     'm6_d10': '🏆 6 мес - 🔟 устройств - 2399 ₽ (выгода -39%)',
     'm12_d10': '🏆 12 мес - 🔟 устройств - 3239 ₽ (выгода -59%)',
     '5000': '♾ Навсегда — 4990 ₽',
+    '5000sale': '♾ Навсегда — 2790 ₽',
 }
 
 dct_desc_friends = {
@@ -822,14 +824,18 @@ def payment_tariff_summary_pro(desc_key: str, prices: dict | None = None) -> str
     days = tariff_days_for_x3(duration_plain)
     wl_bonus = format_wl_bonus_suffix(days)
 
-    if days >= 5000 or duration_plain == '5000':
+    if days >= 5000 or duration_plain in ('5000', '5000sale'):
+        if duration_plain == '5000sale':
+            price_line = f'Сумма к оплате по акции - {price}₽'
+        else:
+            price_line = f'Сумма к оплате - {price}₽'
         return (
             f'Тариф — 💫 {dev_phrase}\n'
             f'5 серверов на выбор.\n'
             f'{dev_phrase}, безлимитный трафик.\n'
             f'Длительность - навсегда\n'
             f'\n'
-            f'Сумма к оплате - {price}₽'
+            f'{price_line}'
             f'{wl_bonus}'
         )
 

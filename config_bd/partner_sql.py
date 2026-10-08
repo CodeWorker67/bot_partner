@@ -707,6 +707,191 @@ class PartnerSQL:
                 total += int(val)
         return total
 
+    _FOREVER_PAYMENT_AMOUNTS = (4990, 2790)
+
+    @staticmethod
+    def _forever_payment_cond(table):
+        return or_(
+            table.payload.like("%duration:5000%"),
+            table.amount.in_(PartnerSQL._FOREVER_PAYMENT_AMOUNTS),
+        )
+
+    def _forever_payers_subquery(self):
+        fc = self._forever_payment_cond
+        return (
+            select(PaymentsFkSBP.user_id)
+            .where(
+                PaymentsFkSBP.bot_id == BOT_ID,
+                PaymentsFkSBP.status == "confirmed",
+                fc(PaymentsFkSBP),
+            )
+            .union(
+                select(PaymentsStars.user_id).where(
+                    PaymentsStars.bot_id == BOT_ID,
+                    PaymentsStars.status == "confirmed",
+                    fc(PaymentsStars),
+                ),
+                select(PaymentsCryptobot.user_id).where(
+                    PaymentsCryptobot.bot_id == BOT_ID,
+                    PaymentsCryptobot.status == "paid",
+                    fc(PaymentsCryptobot),
+                ),
+            )
+            .subquery()
+        )
+
+    def _build_broadcast_where(self, category: str, exclude_today: bool):
+        current_time = datetime.now()
+        today_d = datetime.now(timezone.utc).date()
+        skip_today_cond = or_(
+            Users.last_broadcast_date.is_(None),
+            func.date(Users.last_broadcast_date) != today_d,
+        )
+        bot_users = and_(Users.bot_id == BOT_ID, Users.is_delete == False)
+
+        def wrap(base):
+            return and_(base, skip_today_cond) if exclude_today else base
+
+        if category == "all_users":
+            return wrap(bot_users)
+        if category == "never_bought_forever":
+            from wl_traffic.constants import FOREVER_END_CUTOFF
+
+            forever_paid = self._forever_payers_subquery()
+            return wrap(
+                and_(
+                    bot_users,
+                    Users.user_id.notin_(select(forever_paid.c.user_id)),
+                    or_(
+                        Users.subscription_end_date.is_(None),
+                        Users.subscription_end_date < FOREVER_END_CUTOFF,
+                    ),
+                )
+            )
+        if category == "not_connected_subscribe_yes":
+            return wrap(
+                and_(
+                    bot_users,
+                    Users.in_panel == True,
+                    Users.is_connect == False,
+                    Users.subscription_end_date > current_time,
+                )
+            )
+        if category == "not_connected_subscribe_off":
+            return wrap(
+                and_(
+                    bot_users,
+                    Users.in_panel == True,
+                    Users.is_connect == False,
+                    or_(
+                        Users.subscription_end_date < current_time,
+                        Users.subscription_end_date.is_(None),
+                    ),
+                )
+            )
+        if category == "connected_subscribe_off":
+            return wrap(
+                and_(
+                    bot_users,
+                    Users.in_panel == True,
+                    Users.is_connect == True,
+                    or_(
+                        Users.subscription_end_date < current_time,
+                        Users.subscription_end_date.is_(None),
+                    ),
+                )
+            )
+        if category == "connected_subscribe_yes":
+            return wrap(
+                and_(
+                    bot_users,
+                    Users.in_panel == True,
+                    Users.is_connect == True,
+                    Users.subscription_end_date > current_time,
+                )
+            )
+        if category == "not_subscribed":
+            return wrap(
+                and_(
+                    bot_users,
+                    Users.in_panel == False,
+                    Users.is_connect == False,
+                )
+            )
+        if category == "connected_never_paid":
+            paid_subq = (
+                select(PaymentsFkSBP.user_id)
+                .where(PaymentsFkSBP.bot_id == BOT_ID, PaymentsFkSBP.status == "confirmed")
+                .union(
+                    select(PaymentsStars.user_id).where(
+                        PaymentsStars.bot_id == BOT_ID,
+                        PaymentsStars.status == "confirmed",
+                    ),
+                    select(PaymentsCryptobot.user_id).where(
+                        PaymentsCryptobot.bot_id == BOT_ID,
+                        PaymentsCryptobot.status == "paid",
+                    ),
+                )
+                .subquery()
+            )
+            return wrap(
+                and_(
+                    bot_users,
+                    Users.is_connect == True,
+                    Users.user_id.notin_(select(paid_subq.c.user_id)),
+                )
+            )
+        if category == "subscribed_all":
+            return wrap(
+                and_(
+                    bot_users,
+                    Users.in_panel == True,
+                    Users.subscription_end_date.isnot(None),
+                )
+            )
+        return None
+
+    async def count_users_for_broadcast(self, category: str, exclude_today: bool) -> int:
+        where_clause = self._build_broadcast_where(category, exclude_today)
+        if where_clause is None:
+            return 0
+        async with self.session_factory() as session:
+            stmt = select(func.count()).select_from(Users).where(where_clause)
+            return int((await session.execute(stmt)).scalar_one())
+
+    async def select_user_ids_for_broadcast(self, category: str, exclude_today: bool) -> List[int]:
+        where_clause = self._build_broadcast_where(category, exclude_today)
+        if where_clause is None:
+            return []
+        async with self.session_factory() as session:
+            stmt = select(Users.user_id).where(where_clause)
+            result = await session.execute(stmt)
+            return [int(row[0]) for row in result.all()]
+
+    async def update_broadcast_status(self, user_id: int, status: str) -> None:
+        async with self.session_factory() as session:
+            await session.execute(
+                update(Users)
+                .where(_user_filter(user_id))
+                .values(
+                    last_broadcast_status=status,
+                    last_broadcast_date=datetime.now(),
+                )
+            )
+            await session.commit()
+
+    async def select_connected_subscribe_yes(self) -> List[int]:
+        current_time = datetime.now()
+        async with self.session_factory() as session:
+            stmt = select(Users.user_id).where(
+                Users.bot_id == BOT_ID,
+                Users.is_delete == False,
+                Users.in_panel == True,
+                Users.is_connect == True,
+                Users.subscription_end_date > current_time,
+            )
+            return [int(r[0]) for r in (await session.execute(stmt)).all()]
+
     async def get_all_user_ids_for_broadcast(self) -> List[int]:
         async with self.session_factory() as session:
             stmt = select(Users.user_id).where(Users.bot_id == BOT_ID, Users.is_delete == False)

@@ -54,6 +54,7 @@ LINK_STYLE_LABELS = {
 }
 
 CATEGORY_LABELS = {
+    "never_bought_forever": "без тарифа Навсегда",
     "not_connected_subscribe_yes": "не подключены, подписка активна",
     "not_connected_subscribe_off": "не подключены, подписка неактивна",
     "connected_subscribe_off": "подключены, подписка неактивна",
@@ -69,17 +70,20 @@ SCOPE_LABEL = {
     True: "только тем, кому сегодня не было отправки",
 }
 
-# callback_data и подписи как в keyboard.py (главное меню и тарифы)
+# (preset_id, callback_data, text, style)
 CUSTOM_PRESETS = [
-    ("free_vpn", "🔥 Попробовать бесплатно (legacy)", STYLE_SUCCESS),
-    ("buy_vpn", "🛒 Купить подписку", STYLE_SUCCESS),
-    ("connect_vpn", "🔗 Подключить ВПН", STYLE_PRIMARY),
-    ("ref", "👥 Рефералка", STYLE_PRIMARY),
-    ("buy_gift", "🎁 Подарить подписку", STYLE_SUCCESS),
-    ("ref_invite", "Пригласить друзей🫶", STYLE_SUCCESS),
-    ("buy_tier_3", "🔹 Тарифы на 3️⃣ устройства", STYLE_PRIMARY),
-    ("buy_tier_5", "🔸 Тарифы на 5️⃣ устройств", STYLE_PRIMARY),
-    ("buy_tier_10", "🏆 Тарифы на 🔟 устройств", STYLE_SUCCESS),
+    ("free_vpn", "free_vpn", "🔥 Попробовать бесплатно (legacy)", STYLE_SUCCESS),
+    ("buy_vpn", "buy_vpn", "🛒 Купить подписку", STYLE_SUCCESS),
+    ("connect_vpn", "connect_vpn", "🔗 Подключить ВПН", STYLE_PRIMARY),
+    ("ref", "ref", "👥 Рефералка", STYLE_PRIMARY),
+    ("buy_gift", "buy_gift", "🎁 Подарить подписку", STYLE_SUCCESS),
+    ("ref_invite", "ref_invite", "Пригласить друзей🫶", STYLE_SUCCESS),
+    ("buy_tier_3", "buy_tier_3", "🔹 Тарифы на 3️⃣ устройства", STYLE_PRIMARY),
+    ("buy_tier_5", "buy_tier_5", "🔸 Тарифы на 5️⃣ устройств", STYLE_PRIMARY),
+    ("buy_tier_10", "buy_tier_10", "🏆 Тарифы на 🔟 устройств", STYLE_SUCCESS),
+    ("forever_sale_1", "r_5000sale", '✅ Получить "Навсегда" за 2790 ₽', None),
+    ("forever_sale_2", "r_5000sale", '🔥 Успеть оформить "Навсегда" за 2790 ₽', None),
+    ("forever_sale_3", "r_5000sale", '✨ Забрать "Навсегда" за 2790 ₽', None),
 ]
 
 
@@ -133,8 +137,8 @@ def _keyboard_type_markup() -> InlineKeyboardMarkup:
 
 def _custom_presets_markup() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    for cb_id, text, _st in CUSTOM_PRESETS:
-        b.button(text=text[:64], callback_data=f"{BCBTN}{cb_id}")
+    for preset_id, _cb, text, _st in CUSTOM_PRESETS:
+        b.button(text=text[:64], callback_data=f"{BCBTN}{preset_id}")
     b.adjust(2)
     b.row(InlineKeyboardButton(text="Кнопка-ссылка", callback_data=f"{BCACT}link"))
     b.row(
@@ -229,9 +233,9 @@ def _format_kb_spec_lines(spec: list) -> str:
 
 
 def _append_preset(spec: list, preset_id: str) -> None:
-    for cb_id, text, style in CUSTOM_PRESETS:
-        if cb_id == preset_id:
-            if preset_id == "ref_invite":
+    for pid, cb_id, text, style in CUSTOM_PRESETS:
+        if pid == preset_id:
+            if cb_id == "ref_invite":
                 spec.append(
                     {
                         "kind": "url",
@@ -290,6 +294,23 @@ def _broadcast_state_active(state_name: str | None) -> bool:
     return bool(state_name and state_name.startswith("BroadcastState"))
 
 
+async def _broadcast_access_allowed(user_id: int) -> bool:
+    if user_id in ADMIN_IDS:
+        return True
+    return await sql.can_access_partner_panel(user_id)
+
+
+async def begin_broadcast_wizard(message: Message, state: FSMContext) -> None:
+    """Старт мастера рассылки (как /broadcast)."""
+    await state.clear()
+    await edit_or_send_menu(
+        message,
+        f"Отправьте сообщение для рассылки или нажмите «{BTN_BACK}» для отмены.",
+        _back_markup(),
+    )
+    await state.set_state(BroadcastState.waiting_for_message)
+
+
 class BroadcastState(StatesGroup):
     waiting_for_message = State()
     waiting_for_category = State()
@@ -307,16 +328,10 @@ class BroadcastState(StatesGroup):
 
 @router.message(Command(commands=["broadcast"]))
 async def broadcast_start(message: Message, state: FSMContext):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("Эта команда доступна только администраторам.")
+    if not await _broadcast_access_allowed(message.from_user.id):
+        await message.answer("Эта команда доступна только владельцам и администраторам бота.")
         return
-    await state.clear()
-    await edit_or_send_menu(
-        message,
-        f"Отправьте сообщение для рассылки или нажмите «{BTN_BACK}» для отмены.",
-        _back_markup(),
-    )
-    await state.set_state(BroadcastState.waiting_for_message)
+    await begin_broadcast_wizard(message, state)
 
 
 @router.message(BroadcastState.waiting_for_message)
@@ -410,7 +425,7 @@ async def broadcast_pick_keyboard(callback: CallbackQuery, state: FSMContext, bo
 @router.callback_query(F.data.startswith(BCBTN), StateFilter(BroadcastState.custom_kb))
 async def broadcast_custom_add_preset(callback: CallbackQuery, state: FSMContext):
     pid = callback.data[len(BCBTN) :]
-    if not any(pid == x[0] for x in CUSTOM_PRESETS):
+    if not any(pid == x[0] for x in CUSTOM_PRESETS):  # preset_id
         await callback.answer("Неизвестная кнопка.", show_alert=True)
         return
     data = await state.get_data()
@@ -752,7 +767,6 @@ async def broadcast_confirm_yes(callback: CallbackQuery, state: FSMContext, bot:
                     logger.warning(f"Broadcast: не удалось отправить прогресс админу: {notify_err}")
         except Exception as e:
             await sql.update_broadcast_status(uid, "failed")
-            await sql.update_delete(uid, True)
             logger.error(f"Failed to send message to {uid}: {e}")
 
     logger.success(f"Send broadcast to {count} users")

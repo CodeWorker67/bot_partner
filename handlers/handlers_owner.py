@@ -134,7 +134,6 @@ async def _save_partner_channel(
 
 
 class OwnerFSM(StatesGroup):
-    broadcast_text = State()
     channel_input = State()
     price_value = State()
     trial_days = State()
@@ -282,35 +281,10 @@ async def owner_menu_photo_save(message: Message, state: FSMContext):
 @router.callback_query(F.data == "owner_broadcast")
 @_owner_only
 async def owner_broadcast_start(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(OwnerFSM.broadcast_text)
-    await edit_or_send_menu(
-        callback,
-        "✉️ Отправьте текст рассылки всем пользователям бота:",
-        create_kb(1, owner_panel="❌ Отмена"),
-    )
+    from handlers.handlers_broadcast import begin_broadcast_wizard
+
+    await begin_broadcast_wizard(callback.message, state)
     await callback.answer()
-
-
-@router.message(OwnerFSM.broadcast_text)
-@_owner_only
-async def owner_broadcast_send(message: Message, state: FSMContext):
-    if message.text == "❌ Отмена":
-        await state.clear()
-        await send_owner_menu(message)
-        return
-    user_ids = await sql.get_all_user_ids_for_broadcast()
-    sent = failed = 0
-    for uid in user_ids:
-        try:
-            await bot.send_message(uid, message.text)
-            sent += 1
-        except Exception:
-            failed += 1
-    await state.clear()
-    await message.answer(
-        f"✅ Рассылка завершена.\nОтправлено: {sent}\nОшибок: {failed}",
-        reply_markup=await _owner_menu_keyboard(),
-    )
 
 
 def _owner_channel_status_text(settings: dict | None) -> str:

@@ -45,10 +45,12 @@ dct_desc: Dict[str, str] = {
     "m6_d10": "6 месяцев · 10 устройств",
     "m12_d10": "12 месяцев · 10 устройств",
     "5000": "Навсегда · 5 устройств",
+    "5000sale": "Навсегда (акция) · 5 устройств",
 }
 
 
 FOREVER_TARIFF_KEY = "5000"
+FOREVER_SALE_TARIFF_KEY = "5000sale"
 
 
 def panel_username(tg_id: int, bot_id: int | None = None, *, device_slots: int = 5, white: bool = False) -> str:
@@ -71,7 +73,7 @@ def device_from_tariff_key(duration_key_plain: str) -> int:
 
 
 def tariff_days_for_x3(duration_key_plain: str) -> int:
-    if duration_key_plain in (FOREVER_TARIFF_KEY,):
+    if duration_key_plain in (FOREVER_TARIFF_KEY, FOREVER_SALE_TARIFF_KEY):
         return 5000
     if duration_key_plain.startswith("new_"):
         if duration_key_plain == "new_3000":
