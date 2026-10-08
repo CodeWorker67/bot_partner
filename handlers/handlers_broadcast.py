@@ -381,7 +381,7 @@ async def broadcast_waiting_for_message(message: Message, state: FSMContext):
 
     await state.update_data(
         broadcast_message_id=stash.message_id,
-        broadcast_chat_id=stash.chat.id,
+        broadcast_chat_id=message.chat.id,
         broadcast_content_type=message.content_type,
     )
 
