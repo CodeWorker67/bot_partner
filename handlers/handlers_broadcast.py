@@ -14,7 +14,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot import sql
+from bot import bot, sql
 from botapi_sender import send_message
 from config import ADMIN_IDS, BOT_URL, CHECKER_ID
 from keyboard import (
@@ -28,9 +28,26 @@ from keyboard import (
 )
 from logging_config import logger
 from telegram_ids import is_telegram_chat_id
-from utils.menu_ui import edit_or_send_menu, send_menu_message
+from utils.menu_ui import send_menu_message
 
 router = Router()
+
+
+async def _broadcast_step_message(
+    target: Message,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> Message:
+    """Новое сообщение шага мастера — не трогаем контент рассылки (copy_message)."""
+    return await target.answer(text, parse_mode="HTML", reply_markup=reply_markup)
+
+
+async def _broadcast_step_callback(
+    callback: CallbackQuery,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> Message:
+    return await _broadcast_step_message(callback.message, text, reply_markup)
 
 # ~20 сообщений/с на пользователя (1 API-вызов). В режиме pin — 3 вызова с паузами между шагами.
 _BROADCAST_USER_DELAY = 0.05
@@ -303,7 +320,7 @@ async def _broadcast_access_allowed(user_id: int) -> bool:
 async def begin_broadcast_wizard(message: Message, state: FSMContext) -> None:
     """Старт мастера рассылки (как /broadcast)."""
     await state.clear()
-    await edit_or_send_menu(
+    await _broadcast_step_message(
         message,
         f"Отправьте сообщение для рассылки или нажмите «{BTN_BACK}» для отмены.",
         _back_markup(),
@@ -349,13 +366,26 @@ async def broadcast_waiting_for_message(message: Message, state: FSMContext):
         await message.answer("Этот тип контента не поддерживается для рассылки.")
         return
 
+    try:
+        stash = await bot.copy_message(
+            chat_id=message.chat.id,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+        )
+    except Exception as e:
+        logger.error(f"Broadcast stash copy failed: {e}")
+        await message.answer(
+            "Не удалось сохранить сообщение для рассылки. Попробуйте ещё раз или другой тип контента."
+        )
+        return
+
     await state.update_data(
-        broadcast_message_id=message.message_id,
-        broadcast_chat_id=message.chat.id,
+        broadcast_message_id=stash.message_id,
+        broadcast_chat_id=stash.chat.id,
         broadcast_content_type=message.content_type,
     )
 
-    await edit_or_send_menu(
+    await _broadcast_step_message(
         message,
         "Выберите категорию получателей:",
         _category_markup(),
@@ -371,7 +401,7 @@ async def broadcast_pick_category(callback: CallbackQuery, state: FSMContext):
         return
     await state.update_data(category=category)
     await callback.answer()
-    await edit_or_send_menu(
+    await _broadcast_step_callback(
         callback,
         "Отослать всем или только тем, кому сегодня ещё не отправляли рассылку?",
         _audience_markup(),
@@ -391,7 +421,7 @@ async def broadcast_pick_audience(callback: CallbackQuery, state: FSMContext):
         return
     await state.update_data(exclude_today_broadcast=exclude_today)
     await callback.answer()
-    await edit_or_send_menu(
+    await _broadcast_step_callback(
         callback,
         "Выберите клавиатуру под сообщением:",
         _keyboard_type_markup(),
@@ -408,7 +438,7 @@ async def broadcast_pick_keyboard(callback: CallbackQuery, state: FSMContext, bo
     await callback.answer()
     if mode == "custom":
         await state.update_data(keyboard_mode="custom", custom_kb_spec=[])
-        await edit_or_send_menu(
+        await _broadcast_step_callback(
             callback,
             "Добавьте кнопку — ниже список вариантов.\n"
             "Можно добавить «Кнопка-ссылка» (текст и URL), «Подарочная кнопка» (триал в панели) "
@@ -433,7 +463,7 @@ async def broadcast_custom_add_preset(callback: CallbackQuery, state: FSMContext
     _append_preset(spec, pid)
     await state.update_data(custom_kb_spec=spec)
     await callback.answer()
-    await edit_or_send_menu(
+    await _broadcast_step_callback(
         callback,
         f"Кнопка добавлена. Ваша клавиатура:\n{_format_kb_spec_lines(spec)}",
         _custom_presets_markup(),
@@ -492,7 +522,7 @@ async def broadcast_custom_trial_gift_days(message: Message, state: FSMContext):
         custom_kb_spec=spec,
         trial_gift_btn_text=None,
     )
-    await edit_or_send_menu(
+    await _broadcast_step_message(
         message,
         f"Кнопка добавлена. Ваша клавиатура:\n{_format_kb_spec_lines(spec)}",
         _custom_presets_markup(),
@@ -516,7 +546,7 @@ async def broadcast_custom_link_url(message: Message, state: FSMContext):
         await message.answer("Нужен корректный URL, начинающийся с http:// или https://")
         return
     await state.update_data(link_btn_url=message.text.strip())
-    await edit_or_send_menu(
+    await _broadcast_step_message(
         message,
         "Выберите цвет кнопки (акцент в клиентах Telegram):",
         _link_style_choice_markup(),
@@ -528,7 +558,7 @@ async def broadcast_custom_link_url(message: Message, state: FSMContext):
 async def broadcast_custom_link_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.update_data(link_btn_text=None, link_btn_url=None)
-    await edit_or_send_menu(
+    await _broadcast_step_callback(
         callback,
         "Добавление кнопки-ссылки отменено.\nДобавьте кнопку или завершите формирование:",
         _custom_presets_markup(),
@@ -571,7 +601,7 @@ async def broadcast_custom_link_pick_style(callback: CallbackQuery, state: FSMCo
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
-    await edit_or_send_menu(
+    await _broadcast_step_callback(
         callback,
         f"Кнопка добавлена. Ваша клавиатура:\n{_format_kb_spec_lines(spec)}",
         _custom_presets_markup(),
@@ -586,7 +616,7 @@ async def broadcast_custom_done(callback: CallbackQuery, state: FSMContext):
 
 
 async def _ask_pin_message(message: Message, state: FSMContext):
-    await edit_or_send_menu(
+    await _broadcast_step_message(
         message,
         "Прикрепить сообщение в чате у каждого получателя?",
         _pin_markup(),
@@ -657,7 +687,7 @@ async def _send_preview_and_confirm(message: Message, state: FSMContext, bot: Bo
         if data.get("pin_message")
         else "без прикрепления"
     )
-    await edit_or_send_menu(
+    await _broadcast_step_message(
         message,
         f"Подтвердить отправку {n} пользователям в категории «{cat_label}», "
         f"{scope}, {pin_label}?",
