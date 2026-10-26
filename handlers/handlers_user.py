@@ -57,6 +57,17 @@ from tariff_resolve import device_from_tariff_key, get_prices, panel_username, t
 router = Router()
 
 
+def _partner_id_from_start_arg(start_arg: str) -> str:
+    """?start=partner_<id> или partner_<id>_<хвост> → telegram id партнёра."""
+    if not start_arg.startswith("partner_"):
+        return ""
+    rest = start_arg[len("partner_") :]
+    if "_" in rest:
+        rest = rest.split("_", 1)[0]
+    rest = rest.strip()
+    return rest if rest.isdigit() else ""
+
+
 async def _ensure_user(message: Message, ref: str = "", stamp: str = "") -> None:
     tg_id = message.from_user.id
     if not await sql.get_user(tg_id):
@@ -81,8 +92,9 @@ async def process_start_command(message: Message):
     stamp = ""
     start_arg = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else ""
     if start_arg.startswith("partner_"):
-        raw_partner = start_arg.replace("partner_", "", 1)
-        if raw_partner.isdigit() and raw_partner != str(message.from_user.id):
+        raw_partner = _partner_id_from_start_arg(start_arg)
+        if raw_partner and raw_partner != str(message.from_user.id):
+            ref_login = raw_partner
             partner_login = raw_partner
     elif start_arg.startswith("ref"):
         raw = start_arg.replace("ref", "", 1)
