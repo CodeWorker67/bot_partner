@@ -167,7 +167,7 @@ class X3:
                 trafficLimitBytes = 0
                 hwidDeviceLimit = 5 if hwid_device_limit is None else int(hwid_device_limit)
             bot_name = (BOT_USERNAME or "").lstrip("@")
-            desc = f"@{bot_name}" if bot_name else "VPN for friends"
+            desc = bot_name if bot_name else "VPN for friends"
             data = {
                 "username": user_id_str,
                 "status": "ACTIVE",
