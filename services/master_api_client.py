@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlencode
 
 import aiohttp
 
@@ -27,6 +28,49 @@ def _timeout() -> aiohttp.ClientTimeout:
         sock_connect=MASTER_BOT_API_CONNECT_TIMEOUT,
         sock_read=MASTER_BOT_API_TIMEOUT,
     )
+
+
+async def fetch_partner_application_settings(
+    bot_ids: Optional[List[int]] = None,
+) -> List[Dict[str, Any]]:
+    """Настройки партнёрских ботов с мастера (bot_id, bot_username, …)."""
+    if not MASTER_BOT_API_KEY:
+        raise MasterApiError("MASTER_BOT_API_KEY не настроен в .env")
+
+    base = MASTER_BOT_API_URL.rstrip("/")
+    if bot_ids is not None and len(bot_ids) <= 80:
+        qs = urlencode({"ids": ",".join(str(i) for i in bot_ids)})
+        url = f"{base}/api/partner/applications/settings?{qs}"
+    else:
+        url = f"{base}/api/partner/applications/settings"
+
+    headers = {
+        "X-Partner-Bot-Api-Key": MASTER_BOT_API_KEY,
+        "Accept": "application/json",
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, timeout=_timeout()) as resp:
+                try:
+                    data = await resp.json()
+                except Exception:
+                    data = {"detail": (await resp.text())[:500]}
+                if resp.status >= 400:
+                    detail = data.get("detail", data)
+                    raise MasterApiError(str(detail))
+    except MasterApiError:
+        raise
+    except asyncio.TimeoutError as e:
+        raise MasterApiError(
+            f"Таймаут при обращении к мастер-боту ({MASTER_BOT_API_URL})."
+        ) from e
+    except aiohttp.ClientError as e:
+        raise MasterApiError(f"Ошибка сети при обращении к мастер-боту: {e}") from e
+
+    items = data.get("items")
+    if not isinstance(items, list):
+        raise MasterApiError(f"Неожиданный ответ master: {data!r}")
+    return items
 
 
 async def check_master_api_reachable() -> bool:

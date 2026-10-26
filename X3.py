@@ -8,7 +8,14 @@ from typing import Any, Dict, List, Optional, Tuple
 import urllib3
 import aiohttp
 
-from config import PANEL_API_TOKEN, PANEL_URL, TRUE_SUB_LINK, MIRROR_SUB_LINK, SHORT_UUID_SECRET
+from config import (
+    BOT_USERNAME,
+    PANEL_API_TOKEN,
+    PANEL_URL,
+    TRUE_SUB_LINK,
+    MIRROR_SUB_LINK,
+    SHORT_UUID_SECRET,
+)
 from config_bd.partner_sql import PartnerSQL
 from logging_config import logger
 import random
@@ -159,7 +166,8 @@ class X3:
                 trafficLimitStrategy = "NO_RESET"
                 trafficLimitBytes = 0
                 hwidDeviceLimit = 5 if hwid_device_limit is None else int(hwid_device_limit)
-            desc = 'VPN for friends'
+            bot_name = (BOT_USERNAME or "").lstrip("@")
+            desc = f"@{bot_name}" if bot_name else "VPN for friends"
             data = {
                 "username": user_id_str,
                 "status": "ACTIVE",
@@ -616,6 +624,34 @@ class X3:
         except Exception as e:
             log(f"❌ Исключение при обновлении squads ({label}): {e}")
             return False
+
+    async def update_user_description(
+        self,
+        panel_user_id: Optional[int],
+        description: str,
+        username: Optional[str] = None,
+    ) -> bool:
+        """Обновляет description: PATCH по id, при неуспехе — по username."""
+        username = (username or "").strip() or None
+        desc = (description or "").strip()
+        if panel_user_id is not None:
+            ok = await self._patch_user_squads(
+                {"id": int(panel_user_id), "description": desc},
+                label=f"description id {panel_user_id}",
+                log_error=username is None,
+            )
+            if ok:
+                return True
+            if username:
+                logger.warning(
+                    f"description по id {panel_user_id} не обновлён, пробуем username={username}"
+                )
+        if username:
+            return await self._patch_user_squads(
+                {"username": username, "description": desc},
+                label=f"description username {username}",
+            )
+        return False
 
     async def update_user_squads(
         self,

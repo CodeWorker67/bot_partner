@@ -13,6 +13,8 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.filters import Command
 
 from sheduler.check_connect import check_connect
+from services.master_api_client import MasterApiError, fetch_partner_application_settings
+from wl_traffic.service import billing_key_from_panel_username
 from tariff_resolve import (
     hwid_limit_from_panel_username,
     panel_username,
@@ -27,6 +29,7 @@ from telegram_ids import is_telegram_chat_id
 router = Router()
 
 PRO_HWID_DEVICE_LIMIT = 5
+PANEL_DESCRIPTION_LEGACY = "VPN for friends"
 
 _MSK = timezone(timedelta(hours=3))
 
@@ -824,6 +827,143 @@ async def shortuuid_export(message: Message):
         f"⏭ без shortUuid: {skip_no_short}\n"
         f"⏭ нет в БД: {skip_no_db}\n"
         f"❌ ошибок записи: {errors}"
+    )
+    await message.answer(report)
+    logger.info(report)
+
+
+async def _bot_username_map_for_panel() -> dict[int, str]:
+    """bot_id → username без @: локальная partner_bot_settings, недостающее — Master API."""
+    mapping = await sql.get_bot_usernames_map()
+    try:
+        items = await fetch_partner_application_settings()
+    except MasterApiError as e:
+        logger.warning("change_description: master API: {}", e)
+        return mapping
+    for raw in items:
+        try:
+            bot_id = int(raw["bot_id"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if bot_id in mapping:
+            continue
+        bot_username = raw.get("bot_username")
+        if not isinstance(bot_username, str):
+            continue
+        name = bot_username.lstrip("@").strip()
+        if name:
+            mapping[bot_id] = name
+    return mapping
+
+
+def _change_description_progress_text(
+    *,
+    processed: int,
+    total: int,
+    candidates: int,
+    updated: int,
+    skip_not_legacy: int,
+    skip_bad_username: int,
+    skip_no_bot: int,
+    failed: int,
+    final: bool,
+) -> str:
+    title = "✅ change_description: итог" if final else f"⏳ change_description: {processed}/{total}"
+    return (
+        f"{title}\n"
+        f"📊 В панели: {total}\n"
+        f"🔍 Обработано: {processed}\n"
+        f"🏷 description «{PANEL_DESCRIPTION_LEGACY}»: {candidates}\n"
+        f"✅ Обновлено в панели: {updated}\n"
+        f"⏭ другое description: {skip_not_legacy}\n"
+        f"⏭ username не распознан: {skip_bad_username}\n"
+        f"⏭ нет bot_username для bot_id: {skip_no_bot}\n"
+        f"❌ ошибка PATCH: {failed}"
+    )
+
+
+@router.message(Command(commands=['change_description']))
+async def change_description_command(message: Message):
+    """Замена «VPN for friends» в панели на username бота по bot_id из username панели."""
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    await message.answer("🔄 Загружаю всех пользователей панели и справочник bot_id → username...")
+
+    try:
+        panel_users = await x3.get_all_panel()
+    except Exception as e:
+        logger.error(f"change_description: панель: {e}")
+        await message.answer(f"❌ Ошибка при запросе панели: {e}")
+        return
+
+    bot_names = await _bot_username_map_for_panel()
+    total = len(panel_users)
+    processed = 0
+    candidates = 0
+    updated = 0
+    skip_not_legacy = 0
+    skip_bad_username = 0
+    skip_no_bot = 0
+    failed = 0
+
+    for user in panel_users:
+        processed += 1
+        desc = (user.get("description") or "").strip()
+        if desc != PANEL_DESCRIPTION_LEGACY:
+            skip_not_legacy += 1
+        else:
+            candidates += 1
+            username = (user.get("username") or "").strip()
+            key = billing_key_from_panel_username(username)
+            if key is None:
+                skip_bad_username += 1
+            else:
+                _tg_id, panel_bot_id = key
+                bot_name = bot_names.get(panel_bot_id)
+                if not bot_name:
+                    bot_name = await sql.get_bot_username_by_bot_id(panel_bot_id)
+                    if bot_name:
+                        bot_names[panel_bot_id] = bot_name
+                if not bot_name:
+                    skip_no_bot += 1
+                else:
+                    panel_user_id = x3._panel_user_id(user)
+                    ok = await x3.update_user_description(
+                        panel_user_id,
+                        bot_name,
+                        username=username or None,
+                    )
+                    if ok:
+                        updated += 1
+                    else:
+                        failed += 1
+
+        if processed % 1000 == 0:
+            await message.answer(
+                _change_description_progress_text(
+                    processed=processed,
+                    total=total,
+                    candidates=candidates,
+                    updated=updated,
+                    skip_not_legacy=skip_not_legacy,
+                    skip_bad_username=skip_bad_username,
+                    skip_no_bot=skip_no_bot,
+                    failed=failed,
+                    final=False,
+                )
+            )
+
+    report = _change_description_progress_text(
+        processed=processed,
+        total=total,
+        candidates=candidates,
+        updated=updated,
+        skip_not_legacy=skip_not_legacy,
+        skip_bad_username=skip_bad_username,
+        skip_no_bot=skip_no_bot,
+        failed=failed,
+        final=True,
     )
     await message.answer(report)
     logger.info(report)

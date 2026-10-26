@@ -341,6 +341,30 @@ class PartnerSQL:
             await session.commit()
             return (result.rowcount or 0) > 0
 
+    async def get_bot_usernames_map(self) -> Dict[int, str]:
+        """bot_id → bot_username (без @) из локальной partner_bot_settings."""
+        async with self.session_factory() as session:
+            stmt = select(PartnerBotSettings.bot_id, PartnerBotSettings.bot_username)
+            rows = (await session.execute(stmt)).all()
+        result: Dict[int, str] = {}
+        for bot_id, bot_username in rows:
+            if bot_username:
+                name = str(bot_username).lstrip("@").strip()
+                if name:
+                    result[int(bot_id)] = name
+        return result
+
+    async def get_bot_username_by_bot_id(self, bot_id: int) -> Optional[str]:
+        async with self.session_factory() as session:
+            stmt = select(PartnerBotSettings.bot_username).where(
+                PartnerBotSettings.bot_id == int(bot_id)
+            )
+            row = (await session.execute(stmt)).scalar_one_or_none()
+        if not row:
+            return None
+        name = str(row).lstrip("@").strip()
+        return name or None
+
     async def get_bot_settings(self) -> Optional[Dict[str, Any]]:
         async with self.session_factory() as session:
             stmt = select(PartnerBotSettings).where(PartnerBotSettings.bot_id == BOT_ID)
