@@ -1413,7 +1413,6 @@ class PartnerSQL:
                 Users.field_bool_2,
             ).where(
                 Users.bot_id == BOT_ID,
-                Users.is_delete == False,
                 Users.in_panel == True,
                 active_pro,
             )
