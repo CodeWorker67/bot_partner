@@ -14,6 +14,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from config import BOT_ID, DEFAULT_PRICES, PARTNER_PANEL_IDS, TRIAL_DAYS_MAX, TRIAL_DAYS_MIN
 from lexicon import PAYMENT_MINOR_THRESHOLD_RUB
 from config_bd.models import (
+    AppRefferals,
     AsyncSessionLocal,
     Gifts,
     Online,
@@ -138,6 +139,26 @@ class PartnerSQL:
             except Exception as e:
                 await session.rollback()
                 logger.error("add_user {}: {}", user_id, e)
+                return False
+
+    async def add_app_referral(self, tg_id: int, app: str) -> bool:
+        """Первая фиксация приложения (happ/incy) по партнёрской ссылке."""
+        app_key = (app or "").strip().lower()
+        if app_key not in ("happ", "incy"):
+            return False
+        async with self.session_factory() as session:
+            stmt = (
+                sqlite_insert(AppRefferals)
+                .values(tg_id=tg_id, bot_id=BOT_ID, app=app_key, created_at=datetime.now())
+                .on_conflict_do_nothing(index_elements=["tg_id", "bot_id"])
+            )
+            try:
+                result = await session.execute(stmt)
+                await session.commit()
+                return (result.rowcount or 0) > 0
+            except Exception as e:
+                await session.rollback()
+                logger.error("add_app_referral tg_id={} app={}: {}", tg_id, app_key, e)
                 return False
 
     async def delete_from_db(self, user_id: int) -> bool:

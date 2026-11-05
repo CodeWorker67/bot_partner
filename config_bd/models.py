@@ -169,6 +169,17 @@ class WlTrafficMeta(Base):
     last_closed_date = Column(Date, nullable=True)
 
 
+class AppRefferals(Base):
+    __tablename__ = "app_refferals"
+    __table_args__ = (UniqueConstraint("tg_id", "bot_id", name="uq_app_refferals_bot"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tg_id = Column(BigInteger, nullable=False)
+    bot_id = Column(Integer, nullable=False, default=BOT_ID)
+    created_at = Column(DateTime, default=datetime.now)
+    app = Column(String(32), nullable=False)
+
+
 class Online(Base):
     __tablename__ = "online"
     online_id = Column(Integer, primary_key=True, autoincrement=True)

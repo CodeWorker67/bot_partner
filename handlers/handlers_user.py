@@ -68,6 +68,22 @@ def _partner_id_from_start_arg(start_arg: str) -> str:
     return rest if rest.isdigit() else ""
 
 
+def _app_from_partner_start_arg(start_arg: str) -> str:
+    """Из partner_<id>_…_<happ|incy> — приложение из хвоста start-параметра."""
+    if not start_arg.startswith("partner_"):
+        return ""
+    rest = start_arg[len("partner_") :]
+    if "_" not in rest:
+        return ""
+    tail = rest.split("_", 1)[1]
+    app_key = ""
+    for part in tail.split("_"):
+        token = part.strip().lower()
+        if token in ("happ", "incy"):
+            app_key = token
+    return app_key
+
+
 async def _ensure_user(message: Message, ref: str = "", stamp: str = "") -> None:
     tg_id = message.from_user.id
     if not await sql.get_user(tg_id):
@@ -89,10 +105,12 @@ async def _ensure_user(message: Message, ref: str = "", stamp: str = "") -> None
 async def process_start_command(message: Message):
     ref_login = ""
     partner_login = ""
+    partner_app = ""
     stamp = ""
     start_arg = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else ""
     if start_arg.startswith("partner_"):
         raw_partner = _partner_id_from_start_arg(start_arg)
+        partner_app = _app_from_partner_start_arg(start_arg)
         if raw_partner and raw_partner != str(message.from_user.id):
             ref_login = raw_partner
             partner_login = raw_partner
@@ -122,6 +140,9 @@ async def process_start_command(message: Message):
     )
     if is_new and ref_login:
         await sql.try_set_ref_from_invite(message.from_user.id, ref_login)
+
+    if is_new and partner_login and partner_app:
+        await sql.add_app_referral(message.from_user.id, partner_app)
 
     if is_new:
         src = tracker_source_from_ref_and_stamp(ref_login, stamp, partner_login)
