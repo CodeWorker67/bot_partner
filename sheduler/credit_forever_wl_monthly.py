@@ -1,4 +1,4 @@
-"""1-го числа каждого месяца: +10 GB лимита для тарифа Навсегда."""
+"""1-го числа каждого месяца: +3 GB лимита для тарифа Навсегда."""
 from __future__ import annotations
 
 import asyncio
@@ -18,7 +18,7 @@ from wl_traffic.texts import format_wl_forever_monthly_credit
 
 async def credit_forever_wl_monthly_cron(bot: Bot) -> None:
     """
-    Начисляет +10 GB к limit_wl активным пользователям тарифа Навсегда
+    Начисляет +3 GB к limit_wl активным пользователям тарифа Навсегда
     (subscription_end_date >= 2030-01-01 и подписка ещё не истекла).
     """
     try:

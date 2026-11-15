@@ -82,8 +82,6 @@ def is_forever_end_date(end_date: datetime | date | None) -> bool:
 
 
 def subscription_bonus_gb(duration_days: int) -> float:
-    if duration_days == 7:
-        return 3.0
     if is_forever_duration(duration_days):
         return float(WL_GB_PER_MONTH)
     months = WL_SUBSCRIPTION_MONTHS.get(duration_days, max(0, duration_days // 30))

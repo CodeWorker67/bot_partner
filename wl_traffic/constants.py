@@ -30,8 +30,8 @@ WL_SQUAD_LIMITED = (
     "87f868a6-33e7-44ff-aa1b-97ee9fa91a1b",
 )
 
-WL_GB_PER_MONTH = 10
-WL_TRIAL_LIMIT_GB = 2.0
+WL_GB_PER_MONTH = 3
+WL_TRIAL_LIMIT_GB = 1.0
 WL_LOW_TRAFFIC_WARNING_GB = 1.0
 
 # Тариф «Навсегда» (5000 дней) — expire далеко за 2030
@@ -49,7 +49,7 @@ WL_TRAFFIC_TARIFFS: dict[str, int] = {
     "10": 50,
 }
 
-# duration days -> months for +10 GB/month bonus on subscription payment
+# duration days -> months for +3 GB/month bonus on subscription payment
 WL_SUBSCRIPTION_MONTHS: dict[int, int] = {
     7: 0,
     30: 1,

@@ -1,18 +1,22 @@
 """
-Скрипт для существующей БД partner.db:
+Устаревший разовый скрипт миграции схемы/стартовых WL-лимитов для partner.db.
 
-1. Добавляет поля тарификации Антиглушилка (trafic_wl, limit_wl, field_bool_2)
-   и таблицу wl_traffic_meta.
-2. trafic_wl = 0 у всех пользователей (все bot_id).
-3. limit_wl = 10 GB, если хотя бы одна PRO-подписка (3/5/10 устройств) заканчивается
-   сегодня (МСК) или позже; иначе limit_wl = 0.
+Повторно НЕ запускать на боевой БД: limit_wl у пользователей меняется только
+через бот (триал, оплата, подарок, докупка, крон «Навсегда»). Уже начисленное
+в limit_wl не пересчитывается.
 
-Запуск из корня проекта (DATABASE_PATH из .env):
-  python -m config_bd.backfill_wl_limits
+Исторически при первом запуске:
+1. Добавляет поля Антиглушилка (trafic_wl, limit_wl, field_bool_2) и wl_traffic_meta.
+2. Обнуляет trafic_wl у всех.
+3. Ставит limit_wl активным PRO фиксированное значение (см. _LEGACY_BACKFILL_ACTIVE_LIMIT_GB).
+
+Запуск только при осознанной миграции (перезапишет WL у всех):
+  BACKFILL_WL_LIMITS_CONFIRM=yes python -m config_bd.backfill_wl_limits
 """
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -24,9 +28,11 @@ if str(_root) not in sys.path:
 from sqlalchemy import text
 
 from config_bd.models import engine
-from wl_traffic.constants import WL_GB_PER_MONTH, WL_TIMEZONE
+from wl_traffic.constants import WL_TIMEZONE
 
-_ACTIVE_LIMIT_GB = float(WL_GB_PER_MONTH)
+# Зафиксировано для старой одноразовой миграции; не привязано к текущим тарифам бота.
+_LEGACY_BACKFILL_ACTIVE_LIMIT_GB = 10.0
+_ACTIVE_LIMIT_GB = _LEGACY_BACKFILL_ACTIVE_LIMIT_GB
 
 _ACTIVE_SUB_WHERE = """
     (
@@ -153,6 +159,13 @@ async def backfill() -> None:
 
 
 def main() -> None:
+    if os.environ.get("BACKFILL_WL_LIMITS_CONFIRM") != "yes":
+        print(
+            "backfill_wl_limits отключён по умолчанию: существующие limit_wl в БД не трогаем.\n"
+            "Для разовой миграции (ПЕРЕЗАПИСЬ WL у всех): "
+            "BACKFILL_WL_LIMITS_CONFIRM=yes python -m config_bd.backfill_wl_limits"
+        )
+        sys.exit(1)
     asyncio.run(backfill())
 
 

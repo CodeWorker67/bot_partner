@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from lexicon import lexicon
 
+from wl_traffic.constants import WL_GB_PER_MONTH
 from wl_traffic.service import is_forever_duration, subscription_bonus_gb
 
 
@@ -16,7 +17,7 @@ def format_wl_bonus_suffix(duration_days: int) -> str:
 
 
 def format_wl_forever_monthly_credit() -> str:
-    return lexicon["wl_forever_monthly_credit"]
+    return lexicon["wl_forever_monthly_credit"].format(gb=WL_GB_PER_MONTH)
 
 
 def format_pro_payment_link(duration_days: int) -> str:

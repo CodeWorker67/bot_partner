@@ -14,6 +14,7 @@ from aiogram.types import (
 )
 
 from bot import bot, sql, x3
+from wl_traffic.constants import WL_TRIAL_LIMIT_GB
 from bot_display import is_forever_tariff_bot
 from channel_gate import needs_channel_block, require_channel_sub, send_channel_required, verify_channel_subscription
 from config import BOT_ID, BOT_URL, PARTNER_MIN_WITHDRAW, PARTNER_PROCENT, PARTNER_SUPPORT_URL, REFERRAL_PROCENT, SUPPORT_URL
@@ -330,7 +331,7 @@ async def trial_vpn_cb(callback: CallbackQuery):
     await callback.answer()
     await edit_or_send_menu(
         callback,
-        lexicon["trial_success"].format(days, result.get("time", "-")),
+        lexicon["trial_success"].format(days, result.get("time", "-"), WL_TRIAL_LIMIT_GB),
         keyboard_sub_after_buy(result.get("url", "")),
     )
 
